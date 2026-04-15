@@ -1,0 +1,25 @@
+# 依赖
+node_modules/
+fronted/node_modules/
+fronted/.vite/
+*.node
+
+# 构建产物
+dist/
+build/
+.vite/
+
+# 环境变量
+.env
+.env.local
+
+# 日志
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# 系统文件
+.DS_Store
+Thumbs.db
