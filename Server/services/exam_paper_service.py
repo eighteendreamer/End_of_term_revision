@@ -42,7 +42,7 @@ class ExamPaperService:
         if paper_type == 'normal':
             # 普通练习：从题库随机获取
             questions = QuestionService.get_random_questions(
-                db, subject_id, user_id, question_counts
+                db, user_id, subject_id, question_counts
             )
         else:
             # 错题练习：从错题集获取
