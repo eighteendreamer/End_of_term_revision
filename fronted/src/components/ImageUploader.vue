@@ -5,14 +5,15 @@
       :max="max"
       :accept="'image/*'"
       :file-list="fileList"
-      :show-upload-button="fileList.length < max"
+      :show-upload-button="!disabled && fileList.length < max"
       :show-file-list="true"
       list-type="image-card"
+      :disabled="disabled"
       @change="handleChange"
       @remove="handleRemove"
       :custom-request="handleCustomRequest"
     >
-      <n-button v-if="fileList.length < max" secondary>上传图片</n-button>
+      <n-button v-if="!disabled && fileList.length < max" secondary>上传图片</n-button>
     </n-upload>
   </div>
 </template>
@@ -25,6 +26,10 @@ const props = defineProps({
   max: {
     type: Number,
     default: 3
+  },
+  disabled: {
+    type: Boolean,
+    default: false
   }
 })
 const emit = defineEmits(['update:modelValue'])
@@ -46,14 +51,17 @@ watch(() => props.modelValue, (val) => {
 })
 
 const handleChange = ({ fileList: newList }) => {
+  if (props.disabled) return
   emit('update:modelValue', newList.filter(f => f.status === 'finished').map(f => f.url))
 }
 
 const handleRemove = (options) => {
+  if (props.disabled) return
   emit('update:modelValue', fileList.value.filter(f => f.id !== options.file.id).map(f => f.url))
 }
 
 const handleCustomRequest = async ({ file, onFinish }) => {
+  if (props.disabled) return
   // 直接转base64
   const reader = new FileReader()
   reader.onload = (e) => {

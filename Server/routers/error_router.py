@@ -7,6 +7,7 @@ from typing import List, Dict, Optional
 from pydantic import BaseModel
 from database.db import get_default_db
 from services.error_service import ErrorService
+from utils.redis_client import redis_client, invalidate_cache
 
 router = APIRouter(prefix="/api/errors", tags=["错题集"])
 
@@ -55,12 +56,18 @@ def get_error_questions(
     """
     获取错题列表
     """
+    cache_key = f"error:user:{user_id}:list:subject:{subject_id or 'all'}:limit:{limit or 'all'}"
+    cached_data = redis_client.get(cache_key)
+    if cached_data is not None:
+        return [ErrorQuestionResponse(**error) for error in cached_data]
+
     errors = ErrorService.get_error_questions(
         db=db,
         user_id=user_id,
         subject_id=subject_id,
         limit=limit
     )
+    redis_client.set(cache_key, errors, expire=300)
     
     return [ErrorQuestionResponse(**error) for error in errors]
 
@@ -74,8 +81,15 @@ def get_error_count(
     """
     获取错题数量
     """
+    cache_key = f"error:user:{user_id}:count:subject:{subject_id or 'all'}"
+    cached_data = redis_client.get(cache_key)
+    if cached_data is not None:
+        return cached_data
+
     count = ErrorService.get_error_count(db, user_id, subject_id)
-    return {"count": count}
+    result = {"count": count}
+    redis_client.set(cache_key, result, expire=300)
+    return result
 
 
 @router.get("/types/{subject_id}")
@@ -87,8 +101,15 @@ def get_error_types(
     """
     获取科目下错题的题目类型
     """
+    cache_key = f"error:user:{user_id}:types:subject:{subject_id}"
+    cached_data = redis_client.get(cache_key)
+    if cached_data is not None:
+        return cached_data
+
     types = ErrorService.get_error_types_by_subject(db, user_id, subject_id)
-    return {"types": types}
+    result = {"types": types}
+    redis_client.set(cache_key, result, expire=300)
+    return result
 
 
 @router.post("/practice", response_model=ErrorPracticeResponse)
@@ -145,4 +166,5 @@ def remove_error(error_id: int, user_id: int, db: Session = Depends(get_default_
     if not success:
         raise HTTPException(status_code=404, detail="错题记录不存在或无权删除")
     
+    invalidate_cache(f"error:user:{user_id}:*")
     return {"message": "错题移除成功"}

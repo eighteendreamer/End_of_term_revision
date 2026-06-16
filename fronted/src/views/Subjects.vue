@@ -243,10 +243,22 @@ const loadShareList = async (subjectId) => {
   loadingShares.value = true
   try {
     shareList.value = await shareApi.getStatus(subjectId)
+    syncSubjectShareState(subjectId)
   } catch (error) {
     message.error(error.message || '加载共享列表失败')
   } finally {
     loadingShares.value = false
+  }
+}
+
+const syncSubjectShareState = (subjectId) => {
+  const hasShared = shareList.value.length > 0
+  const subject = subjects.value.find(item => item.id === subjectId)
+  if (subject) {
+    subject.has_shared = hasShared
+  }
+  if (currentSubject.value?.id === subjectId) {
+    currentSubject.value.has_shared = hasShared
   }
 }
 
@@ -290,8 +302,10 @@ const handleAddShare = async () => {
     message.success('共享设置成功')
     shareForm.value.targetUserId = null
     await loadShareList(currentSubject.value.id)
+    syncSubjectShareState(currentSubject.value.id)
     // 刷新科目列表以更新"已共享"标识
     await loadSubjects()
+    syncSubjectShareState(currentSubject.value.id)
   } catch (error) {
     message.error(error.message || '共享设置失败')
   } finally {
@@ -310,8 +324,10 @@ const handleCancelShare = async (share) => {
     
     message.success('已取消共享')
     await loadShareList(currentSubject.value.id)
+    syncSubjectShareState(currentSubject.value.id)
     // 刷新科目列表以更新"已共享"标识
     await loadSubjects()
+    syncSubjectShareState(currentSubject.value.id)
   } catch (error) {
     message.error(error.message || '取消共享失败')
   }

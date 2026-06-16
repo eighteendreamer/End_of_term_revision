@@ -9,6 +9,8 @@ from database.db import get_default_db
 from database.models import Question
 from services.question_service import QuestionService
 from services.share_service import ShareService  # 新增
+from utils.cache_manager import invalidate_question_related_cache
+from utils.redis_client import redis_client
 import json
 
 router = APIRouter(prefix="/api/questions", tags=["题目管理"])
@@ -52,6 +54,9 @@ def create_question(question: QuestionCreate, db: Session = Depends(get_default_
         answer=question.answer,
         analysis=question.analysis
     )
+    db.commit()
+    db.refresh(db_question)
+    invalidate_question_related_cache(question.user_id, question.subject_id)
     
     return _format_question_response(db_question, question.user_id, db)
 
@@ -68,6 +73,14 @@ def get_questions(
     """获取题目列表（支持分页，默认每页20条）
     - subject_id 可选，不传则查询该用户所有题目
     """
+    cache_key = (
+        f"questions:user:{user_id}:list:subject:{subject_id or 'all'}:"
+        f"type:{question_type or 'all'}:page:{page}:size:{page_size}"
+    )
+    cached_data = redis_client.get(cache_key)
+    if cached_data is not None:
+        return [QuestionResponse(**item) for item in cached_data]
+
     questions = QuestionService.get_questions_by_subject(
         db=db,
         user_id=user_id,
@@ -77,7 +90,9 @@ def get_questions(
         page_size=page_size
     )
     
-    return [_format_question_response(q, user_id, db) for q in questions]
+    result = [_format_question_response(q, user_id, db).dict() for q in questions]
+    redis_client.set(cache_key, result, expire=300)
+    return [QuestionResponse(**item) for item in result]
 
 
 @router.get("/types/{subject_id}")
@@ -87,8 +102,15 @@ def get_question_types(
     db: Session = Depends(get_default_db)
 ):
     """获取科目下的所有题目类型"""
+    cache_key = f"questions:user:{user_id}:types:subject:{subject_id}"
+    cached_data = redis_client.get(cache_key)
+    if cached_data is not None:
+        return cached_data
+
     types = QuestionService.get_question_types_by_subject(db, user_id, subject_id)
-    return {"types": types}
+    result = {"types": types}
+    redis_client.set(cache_key, result, expire=300)
+    return result
 
 
 @router.get("/statistics/{subject_id}")
@@ -98,7 +120,13 @@ def get_question_statistics(
     db: Session = Depends(get_default_db)
 ):
     """获取科目下的题目数量统计（查询所有题目）"""
+    cache_key = f"questions:user:{user_id}:statistics:subject:{subject_id}"
+    cached_data = redis_client.get(cache_key)
+    if cached_data is not None:
+        return cached_data
+
     statistics = QuestionService.get_question_statistics(db, user_id, subject_id)
+    redis_client.set(cache_key, statistics, expire=300)
     return statistics
 
 
@@ -108,7 +136,13 @@ def get_all_question_statistics(
     db: Session = Depends(get_default_db)
 ):
     """获取用户所有题目的数量统计"""
+    cache_key = f"questions:user:{user_id}:statistics:subject:all"
+    cached_data = redis_client.get(cache_key)
+    if cached_data is not None:
+        return cached_data
+
     statistics = QuestionService.get_question_statistics(db, user_id, subject_id=None)
+    redis_client.set(cache_key, statistics, expire=300)
     return statistics
 
 
@@ -143,6 +177,7 @@ def delete_question(question_id: int, user_id: int, db: Session = Depends(get_de
     if not success:
         raise HTTPException(status_code=404, detail="删除失败")
     
+    invalidate_question_related_cache(user_id, question.subject_id)
     return {"message": "题目删除成功"}
 
 

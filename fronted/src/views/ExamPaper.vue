@@ -4,10 +4,13 @@
       <template #extra>
         <n-space align="center">
           <CountdownTimer
-            v-if="paper.expires_at"
+            v-if="showCountdown"
             :expires-at="paper.expires_at"
             @expire="handleExpire"
           />
+          <n-tag v-else-if="isInProgress" size="large">不限时</n-tag>
+          <n-tag v-else-if="paper.status === 'completed'" type="success" size="large">已完成</n-tag>
+          <n-tag v-else-if="paper.status === 'expired'" type="error" size="large">已过期</n-tag>
           <n-button @click="handleBack">返回</n-button>
         </n-space>
       </template>
@@ -35,7 +38,7 @@
                 
                 <!-- 单选题和判断题 -->
                 <div v-if="question.type === 'single' || question.type === 'judge'">
-                  <n-radio-group v-model:value="answers[question.id]">
+                  <n-radio-group v-model:value="answers[question.id]" :disabled="isReadOnly">
                     <n-space vertical>
                       <n-radio
                         v-for="(option, index) in question.options"
@@ -51,7 +54,7 @@
 
                 <!-- 多选题 -->
                 <div v-else-if="question.type === 'multiple'">
-                  <n-checkbox-group v-model:value="multiAnswers[question.id]">
+                  <n-checkbox-group v-model:value="multiAnswers[question.id]" :disabled="isReadOnly">
                     <n-space vertical>
                       <n-checkbox
                         v-for="(option, index) in question.options"
@@ -71,6 +74,7 @@
                     v-model:value="answers[question.id]"
                     placeholder="请输入答案"
                     size="large"
+                    :disabled="isReadOnly"
                   />
                 </template>
                 <!-- 大题：文本+图片上传 -->
@@ -80,8 +84,9 @@
                     placeholder="请输入答案"
                     size="large"
                     style="margin-bottom: 8px;"
+                    :disabled="isReadOnly"
                   />
-                  <ImageUploader v-model="majorImages[question.id]" :max="3" />
+                  <ImageUploader v-model="majorImages[question.id]" :max="3" :disabled="isReadOnly" />
                 </template>
               </n-space>
             </n-card>
@@ -108,6 +113,7 @@
 
               <!-- 提交按钮 -->
               <n-button
+                v-if="isInProgress"
                 type="primary"
                 block
                 size="large"
@@ -147,6 +153,8 @@ const submitting = ref(false)
 const paper = ref({
   title: '',
   subject_name: '',
+  status: 'in_progress',
+  duration: null,
   expires_at: null,
   paper_type: 'normal'
 })
@@ -154,6 +162,11 @@ const questions = ref([])
 const answers = ref({})
 const multiAnswers = ref({})
 const majorImages = ref({})
+
+const isInProgress = computed(() => paper.value.status === 'in_progress')
+const isReadOnly = computed(() => !isInProgress.value)
+const hasTimeLimit = computed(() => Number(paper.value.duration) > 0)
+const showCountdown = computed(() => isInProgress.value && hasTimeLimit.value && Boolean(paper.value.expires_at))
 
 const answeredCount = computed(() => {
   let count = 0
@@ -246,11 +259,15 @@ const loadPaper = async () => {
 }
 
 const handleExpire = () => {
+  if (!showCountdown.value || submitting.value) return
+
   message.warning('试卷时间已到，自动提交')
-  submitAnswers()
+  submitAnswers({ force: true })
 }
 
-const submitAnswers = async () => {
+const submitAnswers = async ({ force = false } = {}) => {
+  if (!isInProgress.value || submitting.value) return
+
   // 检查是否所有题都已作答
   const unanswered = questions.value.filter(q => {
     if (q.type === 'multiple') {
@@ -259,7 +276,7 @@ const submitAnswers = async () => {
     return !answers.value[q.id]
   })
 
-  if (unanswered.length > 0) {
+  if (unanswered.length > 0 && !force) {
     message.warning(`还有 ${unanswered.length} 题未作答`)
     return
   }

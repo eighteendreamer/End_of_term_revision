@@ -11,6 +11,7 @@ from database.models import (
 )
 from services.question_service import QuestionService
 from services.error_service import ErrorService
+from utils.cache_manager import invalidate_practice_related_cache
 import json
 
 
@@ -46,8 +47,8 @@ class ExamPaperService:
             )
         else:
             # 错题练习：从错题集获取
-            questions = ErrorService.get_error_questions(
-                db, subject_id, user_id, question_counts
+            questions = ErrorService.get_random_error_questions(
+                db, user_id, subject_id, question_counts
             )
         
         if not questions:
@@ -98,6 +99,7 @@ class ExamPaperService:
         return {
             "paper_id": session.id,
             "title": session.title,
+            "duration": session.duration,
             "expires_at": session.expires_at.isoformat() if session.expires_at else None,
             "questions": ExamPaperService._format_questions(questions)
         }
@@ -147,9 +149,11 @@ class ExamPaperService:
             # 计算进度
             progress = (answered_count / session.total_count * 100) if session.total_count > 0 else 0
             
+            has_time_limit = session.duration is not None and session.duration > 0
+
             # 计算剩余时间（秒）
             remaining_time = 0
-            if session.expires_at and session.status == 'in_progress':
+            if has_time_limit and session.expires_at and session.status == 'in_progress':
                 remaining_seconds = (session.expires_at - datetime.now()).total_seconds()
                 remaining_time = max(0, int(remaining_seconds))
             
@@ -166,6 +170,7 @@ class ExamPaperService:
                 "answered_questions": answered_count,
                 "progress": round(progress, 1),
                 "remaining_time": remaining_time,
+                "duration": session.duration,
                 "created_at": session.created_at.isoformat(),
                 "expires_at": session.expires_at.isoformat() if session.expires_at else None,
                 "score": session.correct_count * 2 if session.status == 'completed' else None,  # 每题2分
@@ -196,8 +201,10 @@ class ExamPaperService:
         if not session:
             raise ValueError("试卷不存在或无权访问")
         
+        has_time_limit = session.duration is not None and session.duration > 0
+
         # 2. 检查是否过期
-        if session.expires_at and datetime.now() > session.expires_at and session.status == 'in_progress':
+        if has_time_limit and session.expires_at and datetime.now() > session.expires_at and session.status == 'in_progress':
             session.status = 'expired'
             db.commit()
         
@@ -206,7 +213,7 @@ class ExamPaperService:
         
         # 4. 计算剩余时间
         remaining_time = 0
-        if session.expires_at and session.status == 'in_progress':
+        if has_time_limit and session.expires_at and session.status == 'in_progress':
             remaining_seconds = (session.expires_at - datetime.now()).total_seconds()
             remaining_time = max(0, int(remaining_seconds))
         
@@ -244,6 +251,7 @@ class ExamPaperService:
                 "total_questions": session.total_count,
                 "answered_questions": answered_count,
                 "remaining_time": remaining_time,
+                "duration": session.duration,
                 "expires_at": session.expires_at.isoformat() if session.expires_at else None,
                 "score": session.correct_count * 2 if session.status == 'completed' else None,
                 "accuracy": session.accuracy if session.status == 'completed' else None
@@ -406,6 +414,8 @@ class ExamPaperService:
         session.completed_at = datetime.now()
         
         db.commit()
+
+        invalidate_practice_related_cache(user_id)
         
         return {
             "score": correct_count * 2,  # 每题2分
@@ -426,6 +436,8 @@ class ExamPaperService:
         
         expired_sessions = db.query(PracticeSession).filter(
             PracticeSession.status == 'in_progress',
+            PracticeSession.duration.isnot(None),
+            PracticeSession.duration > 0,
             PracticeSession.expires_at.isnot(None),
             PracticeSession.expires_at < now
         ).all()

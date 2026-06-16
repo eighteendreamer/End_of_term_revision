@@ -234,6 +234,11 @@ def get_user_leaderboards(
     :param days: 统计天数
     """
     # 获取用户信息
+    cache_key = f"leaderboard:user-leaderboards:{user_id}:limit:{limit}:days:{days or 'all'}"
+    cached_data = redis_client.get(cache_key)
+    if cached_data is not None:
+        return cached_data
+
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
@@ -265,4 +270,5 @@ def get_user_leaderboards(
             user.class_name, limit, days
         )
     
+    redis_client.set(cache_key, result, expire=300)
     return result

@@ -228,8 +228,10 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { chatApi, friendApi, ChatWebSocket } from '@/api'
 import { useUserStore } from '@/stores/user'
 import { getAvatarColor } from '@/utils/avatarUtils'
+import { useMessage } from 'naive-ui'
 
 const userStore = useUserStore()
+const message = useMessage()
 const currentUserId = computed(() => userStore.userId)
 const username = computed(() => userStore.username)
 
@@ -417,7 +419,7 @@ const scrollToBottom = () => {
 // 搜索用户
 const searchUsers = async () => {
   if (!searchStudentId.value) {
-    alert('请输入学号')
+    message.warning('请输入学号')
     return
   }
   
@@ -439,11 +441,11 @@ const sendFriendRequest = async (user) => {
   try {
     const res = await friendApi.sendRequest(user.user_id, currentUserId.value)
     if (res.code === 200) {
-      alert('好友请求已发送')
+      message.success(res.message || '好友请求已发送')
       user.friendship_status = 'pending'
     }
   } catch (error) {
-    alert(error.message || '发送请求失败')
+    message.error(error.message || '发送请求失败')
   }
 }
 
@@ -452,12 +454,12 @@ const acceptRequest = async (user) => {
   try {
     const res = await friendApi.accept(user.user_id, currentUserId.value)
     if (res.code === 200) {
-      alert('已接受好友请求')
+      message.success(res.message || '已接受好友请求')
       loadFriends()
       loadPendingRequests()
     }
   } catch (error) {
-    alert('操作失败')
+    message.error(error.message || '操作失败')
   }
 }
 
@@ -466,11 +468,11 @@ const rejectRequest = async (user) => {
   try {
     const res = await friendApi.reject(user.user_id, currentUserId.value)
     if (res.code === 200) {
-      alert('已拒绝好友请求')
+      message.success(res.message || '已拒绝好友请求')
       loadPendingRequests()
     }
   } catch (error) {
-    alert('操作失败')
+    message.error(error.message || '操作失败')
   }
 }
 

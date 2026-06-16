@@ -7,6 +7,7 @@ from sqlalchemy import or_, and_
 from database.models import Subject, SubjectShare, ShareType, User
 from typing import List, Optional, Dict, Any
 from fastapi import HTTPException
+from utils.redis_client import invalidate_cache
 
 
 class ShareService:
@@ -254,6 +255,8 @@ class ShareService:
         db.add(share)
         db.commit()
         db.refresh(share)
+
+        ShareService._invalidate_share_cache(owner_user_id, subject_id, target_user_id, share_type)
         
         return {
             'id': share.id,
@@ -307,8 +310,25 @@ class ShareService:
         
         db.delete(share)
         db.commit()
+
+        ShareService._invalidate_share_cache(owner_user_id, subject_id, target_user_id, share_type)
         
         return {"message": "共享已取消"}
+    
+    @staticmethod
+    def _invalidate_share_cache(
+        owner_user_id: int,
+        subject_id: int,
+        target_user_id: Optional[int] = None,
+        share_type: Optional[str] = None
+    ) -> None:
+        """清除共享状态变更影响到的科目列表缓存。"""
+        invalidate_cache(f"subjects:user:{owner_user_id}:*")
+        if target_user_id is not None:
+            invalidate_cache(f"subjects:user:{target_user_id}:*")
+        if share_type == 'PUBLIC':
+            invalidate_cache("subjects:user:*")
+        invalidate_cache(f"shares:subject:{subject_id}:*")
     
     @staticmethod
     def get_share_status(subject_id: int, db: Session) -> List[Dict[str, Any]]:

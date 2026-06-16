@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from database.models import Question, Subject
+from utils.cache_manager import invalidate_question_related_cache
 import json
 
 
@@ -406,6 +407,9 @@ class QuestionService:
         
         # 统一提交所有新创建的题目
         db.commit()
+
+        if created_questions:
+            invalidate_question_related_cache(user_id, subject_id)
         
         return {
             "created": created_questions,

@@ -10,6 +10,8 @@ from services.question_service import QuestionService
 from services.practice_service import PracticeService
 from services.error_service import ErrorService
 from services.share_service import ShareService  # 新增
+from utils.cache_manager import invalidate_practice_related_cache
+from utils.redis_client import redis_client
 import json
 
 router = APIRouter(prefix="/api/practice", tags=["练习"])
@@ -220,6 +222,8 @@ def submit_answers(request: SubmitAnswersRequest, db: Session = Depends(get_defa
             subject_id=request.subject_id,
             question_ids=error_question_ids
         )
+
+    invalidate_practice_related_cache(request.user_id)
     
     return SubmitAnswersResponse(
         total=total,
@@ -234,38 +238,63 @@ def submit_answers(request: SubmitAnswersRequest, db: Session = Depends(get_defa
 @router.get("/statistics/today", response_model=StatisticsResponse)
 def get_today_statistics(user_id: int, db: Session = Depends(get_default_db)):
     """获取今日统计"""
+    cache_key = f"practice:user:{user_id}:stats:today"
+    cached_data = redis_client.get(cache_key)
+    if cached_data is not None:
+        return StatisticsResponse(**cached_data)
+
     stats = PracticeService.get_today_statistics(db, user_id)
+    redis_client.set(cache_key, stats, expire=300)
     return StatisticsResponse(**stats)
 
 
 @router.get("/statistics/week", response_model=StatisticsResponse)
 def get_week_statistics(user_id: int, db: Session = Depends(get_default_db)):
     """获取本周统计"""
+    cache_key = f"practice:user:{user_id}:stats:week"
+    cached_data = redis_client.get(cache_key)
+    if cached_data is not None:
+        return StatisticsResponse(**cached_data)
+
     stats = PracticeService.get_week_statistics(db, user_id)
+    redis_client.set(cache_key, stats, expire=300)
     return StatisticsResponse(**stats)
 
 
 @router.get("/statistics/all", response_model=StatisticsResponse)
 def get_all_statistics(user_id: int, db: Session = Depends(get_default_db)):
     """获取全部统计"""
+    cache_key = f"practice:user:{user_id}:stats:all"
+    cached_data = redis_client.get(cache_key)
+    if cached_data is not None:
+        return StatisticsResponse(**cached_data)
+
     stats = PracticeService.get_all_statistics(db, user_id)
+    redis_client.set(cache_key, stats, expire=300)
     return StatisticsResponse(**stats)
 
 
 @router.get("/statistics/home", response_model=HomeStatisticsResponse)
 def get_home_statistics(user_id: int, db: Session = Depends(get_default_db)):
     """获取首页统计数据"""
+    cache_key = f"practice:user:{user_id}:stats:home"
+    cached_data = redis_client.get(cache_key)
+    if cached_data is not None:
+        return HomeStatisticsResponse(**cached_data)
+
     today = PracticeService.get_today_statistics(db, user_id)
     week = PracticeService.get_week_statistics(db, user_id)
     all_stats = PracticeService.get_all_statistics(db, user_id)
     consecutive = PracticeService.get_consecutive_days(db, user_id)
     
-    return HomeStatisticsResponse(
-        today=StatisticsResponse(**today),
-        week=StatisticsResponse(**week),
-        all=StatisticsResponse(**all_stats),
-        consecutive_days=consecutive
-    )
+    result = {
+        "today": today,
+        "week": week,
+        "all": all_stats,
+        "consecutive_days": consecutive
+    }
+    redis_client.set(cache_key, result, expire=300)
+    return HomeStatisticsResponse(**result)
 
 
 @router.get("/history")
@@ -277,6 +306,11 @@ def get_practice_history(
 ):
     """获取练习历史记录"""
     from database.models import PracticeSession, Subject
+
+    cache_key = f"practice:user:{user_id}:history:subject:{subject_id or 'all'}:limit:{limit or 'all'}"
+    cached_data = redis_client.get(cache_key)
+    if cached_data is not None:
+        return cached_data
     
     # 构建查询
     query = db.query(
@@ -321,13 +355,20 @@ def get_practice_history(
             "subject_name": row[7] or "未知科目"
         })
     
-    return {"records": records}
+    result = {"records": records}
+    redis_client.set(cache_key, result, expire=300)
+    return result
 
 
 @router.get("/session/{session_id}/details")
 def get_session_details(session_id: int, db: Session = Depends(get_default_db)):
     """获取练习会话的详细题目记录"""
     from database.models import PracticeRecord, Question
+
+    cache_key = f"practice:session:{session_id}:details"
+    cached_data = redis_client.get(cache_key)
+    if cached_data is not None:
+        return cached_data
     
     # 查询该会话的所有答题记录
     records = db.query(
@@ -360,4 +401,6 @@ def get_session_details(session_id: int, db: Session = Depends(get_default_db)):
             "analysis": question.analysis
         })
     
-    return {"details": details}
+    result = {"details": details}
+    redis_client.set(cache_key, result, expire=300)
+    return result
