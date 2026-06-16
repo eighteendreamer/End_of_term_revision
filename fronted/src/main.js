@@ -18,14 +18,14 @@ console.log('🔒 初始化前端安全措施...')
 console.log('环境:', import.meta.env.MODE)
 
 initSecurityMeasures({
-  disableRightClick: false,     // 禁用右键菜单
-  disableShortcuts: false,      // 禁用开发者工具快捷键（F12等）
-  detectDevTools: false,        // 检测开发者工具是否打开
+  disableRightClick: true,      // 禁用右键菜单
+  disableShortcuts: true,       // 禁用开发者工具快捷键（F12等）
+  detectDevTools: true,         // 检测开发者工具是否打开
   disableConsole: false,        // 不禁用控制台（方便看日志）
   preventIframe: true,          // 防止iframe嵌入
   disableSelection: false,      // 不禁用文本选择（保持用户体验）
   disableDrag: false,           // 不禁用拖拽（保持用户体验）
-  clearDebug: false,            // 不清除调试信息（开发时需要）
+  clearDebug: true,             // 清除调试信息
 })
 
 app.mount('#app')

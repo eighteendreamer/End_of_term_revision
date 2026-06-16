@@ -5,6 +5,22 @@ const request = axios.create({
   timeout: 120000  // 全局超时改为 120 秒
 })
 
+const getErrorMessage = (error) => {
+  const detail = error.response?.data?.detail
+
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    return detail
+      .map(item => item.msg || item.message || JSON.stringify(item))
+      .join('；')
+  }
+  if (detail && typeof detail === 'object') {
+    return detail.message || detail.msg || JSON.stringify(detail)
+  }
+
+  return error.response?.data?.message || error.message || '请求失败'
+}
+
 // 请求拦截器 - 添加token
 request.interceptors.request.use(
   config => {
@@ -25,7 +41,7 @@ request.interceptors.response.use(
     return response.data
   },
   error => {
-    const message = error.response?.data?.detail || error.message || '请求失败'
+    const message = getErrorMessage(error)
     return Promise.reject(new Error(message))
   }
 )
@@ -200,7 +216,7 @@ export const errorApi = {
   practice: (data) => request.post('/errors/practice', data),
 
   // 移除错题
-  remove: (errorId) => request.delete(`/errors/${errorId}`)
+  remove: (errorId, userId) => request.delete(`/errors/${errorId}`, { params: { user_id: userId } })
 }
 
 // ==================== AI 模型配置 API ====================

@@ -362,6 +362,7 @@ class ExamPaperService:
         
         correct_count = 0
         wrong_count = 0
+        is_error_paper = session.session_type == 'paper_error'
         
         for record in records:
             question = db.query(Question).filter(Question.id == record.question_id).first()
@@ -379,6 +380,13 @@ class ExamPaperService:
             
             if is_correct:
                 correct_count += 1
+                if is_error_paper:
+                    ErrorService.reduce_error_count(
+                        db=db,
+                        user_id=user_id,
+                        question_id=record.question_id,
+                        subject_id=session.subject_id
+                    )
             else:
                 wrong_count += 1
                 

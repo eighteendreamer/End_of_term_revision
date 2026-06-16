@@ -180,6 +180,40 @@ class ErrorService:
             db.commit()
             return True
         return False
+
+    @staticmethod
+    def reduce_error_count(
+        db: Session,
+        user_id: int,
+        question_id: int,
+        subject_id: Optional[int] = None
+    ) -> bool:
+        """
+        答对错题后抵扣一次错误次数，减到 0 时自动移除错题记录
+        :param db: 数据库会话
+        :param user_id: 用户 ID
+        :param question_id: 题目 ID
+        :param subject_id: 科目 ID（可选，用于更精确匹配）
+        :return: 是否找到并更新了错题记录
+        """
+        query = db.query(ErrorBook).filter(
+            ErrorBook.user_id == user_id,
+            ErrorBook.question_id == question_id
+        )
+        if subject_id is not None:
+            query = query.filter(ErrorBook.subject_id == subject_id)
+
+        error = query.first()
+        if not error:
+            return False
+
+        if error.wrong_count > 1:
+            error.wrong_count -= 1
+            error.last_wrong_at = datetime.now()
+        else:
+            db.delete(error)
+
+        return True
     
     @staticmethod
     def get_error_count(db: Session, user_id: int, subject_id: Optional[int] = None) -> int:

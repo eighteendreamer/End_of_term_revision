@@ -239,7 +239,7 @@ const removeError = (errorId) => {
     negativeText: '取消',
     onPositiveClick: async () => {
       try {
-        await errorApi.remove(errorId)
+        await errorApi.remove(errorId, userId.value)
         message.success('已移除')
         loadErrors()
       } catch (error) {

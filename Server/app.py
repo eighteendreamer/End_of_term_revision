@@ -56,7 +56,7 @@ app = FastAPI(
 )
 
 # 配置 CORS（收紧：仅允许前端域名）
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3001").split(",")
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "https://endreversion.pantoria.cn").split(",") # ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3001")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
