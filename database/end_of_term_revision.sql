@@ -1,17 +1,17 @@
 /*
  Navicat Premium Dump SQL
 
- Source Server         : WSL_MySQL
+ Source Server         : 腾讯云_MySQL
  Source Server Type    : MySQL
- Source Server Version : 80044 (8.0.44-0ubuntu0.24.04.2)
- Source Host           : 127.0.0.1:3306
+ Source Server Version : 90001 (9.0.1)
+ Source Host           : localhost:3306
  Source Schema         : end_of_term_revision
 
  Target Server Type    : MySQL
- Target Server Version : 80044 (8.0.44-0ubuntu0.24.04.2)
+ Target Server Version : 90001 (9.0.1)
  File Encoding         : 65001
 
- Date: 25/01/2026 16:29:36
+ Date: 16/06/2026 13:34:50
 */
 
 SET NAMES utf8mb4;
@@ -37,7 +37,7 @@ CREATE TABLE `chat_messages`  (
   INDEX `idx_conversation`(`from_user_id` ASC, `to_user_id` ASC, `created_at` ASC) USING BTREE,
   CONSTRAINT `chat_messages_ibfk_1` FOREIGN KEY (`from_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT,
   CONSTRAINT `chat_messages_ibfk_2` FOREIGN KEY (`to_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 13 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '聊天消息表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 23 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '聊天消息表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for colleges
@@ -76,7 +76,7 @@ CREATE TABLE `data_access_permissions`  (
   INDEX `idx_granted_by`(`granted_by` ASC) USING BTREE,
   CONSTRAINT `data_access_permissions_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT,
   CONSTRAINT `data_access_permissions_ibfk_2` FOREIGN KEY (`granted_by`) REFERENCES `users` (`id`) ON DELETE SET NULL ON UPDATE RESTRICT
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '数据访问权限表' ROW_FORMAT = DYNAMIC;
+) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '数据访问权限表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for db_configs
@@ -113,10 +113,11 @@ CREATE TABLE `error_book`  (
   INDEX `subject_id`(`subject_id` ASC) USING BTREE,
   INDEX `question_id`(`question_id` ASC) USING BTREE,
   INDEX `idx_last_wrong_at`(`last_wrong_at` ASC) USING BTREE,
+  INDEX `idx_error_book_user_subject_question`(`user_id` ASC, `subject_id` ASC, `question_id` ASC) USING BTREE,
   CONSTRAINT `error_book_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT,
   CONSTRAINT `error_book_ibfk_2` FOREIGN KEY (`subject_id`) REFERENCES `subjects` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT,
   CONSTRAINT `error_book_ibfk_3` FOREIGN KEY (`question_id`) REFERENCES `questions` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 1681 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '错题集表' ROW_FORMAT = DYNAMIC;
+) ENGINE = InnoDB AUTO_INCREMENT = 1785 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '错题集表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for friendships
@@ -136,7 +137,7 @@ CREATE TABLE `friendships`  (
   INDEX `idx_status`(`status` ASC) USING BTREE,
   CONSTRAINT `friendships_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT,
   CONSTRAINT `friendships_ibfk_2` FOREIGN KEY (`friend_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 2 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '好友关系表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 3 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '好友关系表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for ip_blacklist
@@ -152,7 +153,7 @@ CREATE TABLE `ip_blacklist`  (
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `uk_ip`(`ip_address` ASC) USING BTREE,
   INDEX `idx_expires_at`(`expires_at` ASC) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'IP黑名单表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 770 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'IP黑名单表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for llm_models
@@ -187,7 +188,7 @@ CREATE TABLE `majors`  (
   INDEX `idx_school_id`(`school_id` ASC) USING BTREE,
   CONSTRAINT `majors_ibfk_1` FOREIGN KEY (`college_id`) REFERENCES `colleges` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT,
   CONSTRAINT `majors_ibfk_2` FOREIGN KEY (`school_id`) REFERENCES `schools` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 3 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '专业表' ROW_FORMAT = DYNAMIC;
+) ENGINE = InnoDB AUTO_INCREMENT = 6 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '专业表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for material_questions
@@ -205,7 +206,7 @@ CREATE TABLE `material_questions`  (
   INDEX `idx_question`(`question_id` ASC) USING BTREE,
   CONSTRAINT `material_questions_ibfk_1` FOREIGN KEY (`material_id`) REFERENCES `materials` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT,
   CONSTRAINT `material_questions_ibfk_2` FOREIGN KEY (`question_id`) REFERENCES `questions` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '资料题目关联表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '资料题目关联表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for materials
@@ -231,10 +232,10 @@ CREATE TABLE `materials`  (
   INDEX `idx_user_subject`(`user_id` ASC, `subject_id` ASC) USING BTREE,
   INDEX `idx_status`(`status` ASC) USING BTREE,
   INDEX `idx_created_at`(`created_at` ASC) USING BTREE,
-  INDEX `subject_id`(`subject_id` ASC) USING BTREE,
+  INDEX `materials_ibfk_2`(`subject_id` ASC) USING BTREE,
   CONSTRAINT `materials_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT,
   CONSTRAINT `materials_ibfk_2` FOREIGN KEY (`subject_id`) REFERENCES `subjects` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 2 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '学习资料表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 2 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '学习资料表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for practice_records
@@ -261,11 +262,13 @@ CREATE TABLE `practice_records`  (
   INDEX `idx_created_at`(`created_at` ASC) USING BTREE,
   INDEX `idx_user_time`(`user_id` ASC, `created_at` ASC) USING BTREE,
   INDEX `idx_session_question`(`session_id` ASC, `question_id` ASC) USING BTREE,
-  CONSTRAINT `practice_records_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  INDEX `idx_practice_records_user_subject_question`(`user_id` ASC, `subject_id` ASC, `question_id` ASC) USING BTREE,
+  INDEX `idx_practice_records_subject_question_correct`(`subject_id` ASC, `question_id` ASC, `is_correct` ASC) USING BTREE,
+  INDEX `idx_practice_records_session_question`(`session_id` ASC, `question_id` ASC) USING BTREE,
   CONSTRAINT `practice_records_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT,
   CONSTRAINT `practice_records_ibfk_3` FOREIGN KEY (`subject_id`) REFERENCES `subjects` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT,
   CONSTRAINT `practice_records_ibfk_4` FOREIGN KEY (`question_id`) REFERENCES `questions` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 14748 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '练习记录表' ROW_FORMAT = DYNAMIC;
+) ENGINE = InnoDB AUTO_INCREMENT = 15381 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '练习记录表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for practice_sessions
@@ -297,9 +300,10 @@ CREATE TABLE `practice_sessions`  (
   INDEX `idx_user_status`(`user_id` ASC, `status` ASC) USING BTREE,
   INDEX `idx_session_type`(`session_type` ASC) USING BTREE,
   INDEX `idx_expires`(`expires_at` ASC) USING BTREE,
+  INDEX `idx_practice_sessions_user_subject_type_created`(`user_id` ASC, `subject_id` ASC, `session_type` ASC, `created_at` ASC) USING BTREE,
   CONSTRAINT `practice_sessions_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT,
   CONSTRAINT `practice_sessions_ibfk_2` FOREIGN KEY (`subject_id`) REFERENCES `subjects` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 378 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '练习会话表' ROW_FORMAT = DYNAMIC;
+) ENGINE = InnoDB AUTO_INCREMENT = 390 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '练习会话表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for question_resources
@@ -338,6 +342,9 @@ CREATE TABLE `questions`  (
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   `is_deleted` tinyint(1) NULL DEFAULT 0 COMMENT '是否已删除（0=正常，1=已删除）',
+  `difficulty_level` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT 'medium' COMMENT '难度：easy/medium/hard',
+  `quality_score` int NOT NULL DEFAULT 60 COMMENT '题目质量分 0-100',
+  `knowledge_tag` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '知识点标签',
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `subject_id`(`subject_id` ASC) USING BTREE,
   INDEX `user_id`(`user_id` ASC) USING BTREE,
@@ -351,12 +358,14 @@ CREATE TABLE `questions`  (
   INDEX `idx_school_id`(`school_id` ASC) USING BTREE,
   INDEX `idx_college_id`(`college_id` ASC) USING BTREE,
   INDEX `idx_major_id`(`major_id` ASC) USING BTREE,
+  INDEX `idx_questions_subject_type_difficulty`(`subject_id` ASC, `type` ASC, `difficulty_level` ASC) USING BTREE,
+  INDEX `idx_questions_subject_type_quality`(`subject_id` ASC, `type` ASC, `quality_score` ASC) USING BTREE,
   CONSTRAINT `questions_ibfk_1` FOREIGN KEY (`subject_id`) REFERENCES `subjects` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT,
   CONSTRAINT `questions_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT,
   CONSTRAINT `questions_ibfk_college` FOREIGN KEY (`college_id`) REFERENCES `colleges` (`id`) ON DELETE SET NULL ON UPDATE RESTRICT,
   CONSTRAINT `questions_ibfk_major` FOREIGN KEY (`major_id`) REFERENCES `majors` (`id`) ON DELETE SET NULL ON UPDATE RESTRICT,
   CONSTRAINT `questions_ibfk_school` FOREIGN KEY (`school_id`) REFERENCES `schools` (`id`) ON DELETE SET NULL ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 1433 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '题库表' ROW_FORMAT = DYNAMIC;
+) ENGINE = InnoDB AUTO_INCREMENT = 1683 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '题库表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for region_blacklist
@@ -372,7 +381,7 @@ CREATE TABLE `region_blacklist`  (
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `uk_region`(`region` ASC) USING BTREE,
   INDEX `idx_expires_at`(`expires_at` ASC) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '区域黑名单表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '区域黑名单表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for schools
@@ -410,7 +419,7 @@ CREATE TABLE `subject_shares`  (
   CONSTRAINT `subject_shares_ibfk_1` FOREIGN KEY (`owner_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT,
   CONSTRAINT `subject_shares_ibfk_2` FOREIGN KEY (`subject_id`) REFERENCES `subjects` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT,
   CONSTRAINT `subject_shares_ibfk_3` FOREIGN KEY (`target_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 16 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '科目共享表' ROW_FORMAT = DYNAMIC;
+) ENGINE = InnoDB AUTO_INCREMENT = 18 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '科目共享表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for subjects
@@ -437,7 +446,7 @@ CREATE TABLE `subjects`  (
   CONSTRAINT `subjects_ibfk_college` FOREIGN KEY (`college_id`) REFERENCES `colleges` (`id`) ON DELETE SET NULL ON UPDATE RESTRICT,
   CONSTRAINT `subjects_ibfk_major` FOREIGN KEY (`major_id`) REFERENCES `majors` (`id`) ON DELETE SET NULL ON UPDATE RESTRICT,
   CONSTRAINT `subjects_ibfk_school` FOREIGN KEY (`school_id`) REFERENCES `schools` (`id`) ON DELETE SET NULL ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 13 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '科目表' ROW_FORMAT = DYNAMIC;
+) ENGINE = InnoDB AUTO_INCREMENT = 15 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '科目表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for user_online_status
@@ -450,7 +459,7 @@ CREATE TABLE `user_online_status`  (
   `socket_id` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT 'WebSocket连接ID',
   PRIMARY KEY (`user_id`) USING BTREE,
   CONSTRAINT `user_online_status_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '用户在线状态表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '用户在线状态表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for users
@@ -476,7 +485,7 @@ CREATE TABLE `users`  (
   INDEX `idx_major_id`(`major_id` ASC) USING BTREE,
   CONSTRAINT `users_ibfk_major` FOREIGN KEY (`major_id`) REFERENCES `majors` (`id`) ON DELETE SET NULL ON UPDATE RESTRICT,
   CONSTRAINT `users_ibfk_school` FOREIGN KEY (`school_id`) REFERENCES `schools` (`id`) ON DELETE SET NULL ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 28 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '系统用户表' ROW_FORMAT = DYNAMIC;
+) ENGINE = InnoDB AUTO_INCREMENT = 64 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '系统用户表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- View structure for v_question_full_info

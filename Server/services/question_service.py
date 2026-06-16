@@ -14,6 +14,36 @@ class QuestionService:
     """题目服务类"""
 
     @staticmethod
+    def calculate_quality_score(question_type: str, question: str, options: List[str], answer: str, analysis: str) -> int:
+        """根据题目完整度计算基础质量分。"""
+        score = 60
+        question_text = (question or "").strip()
+        answer_text = (answer or "").strip()
+        analysis_text = (analysis or "").strip()
+        options = options or []
+
+        if not question_text or not answer_text:
+            return 0
+
+        if analysis_text:
+            score += 15
+        if 8 <= len(question_text) <= 500:
+            score += 10
+        if question_type in ("single", "multiple"):
+            if len(options) >= 4:
+                score += 15
+            elif len(options) >= 2:
+                score += 5
+            else:
+                score -= 30
+        elif question_type == "judge":
+            score += 10
+        else:
+            score += 8
+
+        return max(0, min(100, score))
+
+    @staticmethod
     def auto_judge_fill_type(question: str, options: list, question_type: str) -> bool:
         """
         自动判定是否为填空题：题干含下划线或括号，且无选项，且不是判断题
@@ -84,6 +114,10 @@ class QuestionService:
             if not has_blank and len(text) > 40:
                 final_type = 'major'
 
+        quality_score = QuestionService.calculate_quality_score(
+            final_type, question, options, answer, analysis
+        )
+
         # 创建题目，自动继承科目的组织架构信息
         db_question = Question(
             user_id=user_id,
@@ -95,7 +129,9 @@ class QuestionService:
             question=question,
             options_json=options_json,
             answer=answer,
-            analysis=analysis
+            analysis=analysis,
+            difficulty_level='medium',
+            quality_score=quality_score
         )
         
         db.add(db_question)
@@ -220,8 +256,10 @@ class QuestionService:
             query = query.filter(Question.user_id == user_id)
         question = query.first()
         if question:
+            subject_id = question.subject_id
             db.delete(question)
             db.commit()
+            invalidate_question_related_cache(user_id, subject_id)
             return True
         return False
     

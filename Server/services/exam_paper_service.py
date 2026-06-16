@@ -11,6 +11,7 @@ from database.models import (
 )
 from services.question_service import QuestionService
 from services.error_service import ErrorService
+from services.paper_generation_service import PaperGenerationService
 from utils.cache_manager import invalidate_practice_related_cache
 import json
 
@@ -39,17 +40,14 @@ class ExamPaperService:
         :param question_counts: 题型数量配置 {single: 10, multiple: 5, ...}
         :return: 试卷信息和题目列表
         """
-        # 1. 获取题目
-        if paper_type == 'normal':
-            # 普通练习：从题库随机获取
-            questions = QuestionService.get_random_questions(
-                db, user_id, subject_id, question_counts
-            )
-        else:
-            # 错题练习：从错题集获取
-            questions = ErrorService.get_random_error_questions(
-                db, user_id, subject_id, question_counts
-            )
+        # 1. 智能获取题目
+        questions = PaperGenerationService.generate_questions(
+            db=db,
+            user_id=user_id,
+            subject_id=subject_id,
+            paper_type=paper_type,
+            question_counts=question_counts
+        )
         
         if not questions:
             raise ValueError("没有足够的题目创建试卷")

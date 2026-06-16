@@ -188,6 +188,9 @@ class Question(Base):
     options_json = Column(JSON, nullable=True, comment='选项 JSON')
     answer = Column(Text, nullable=False, comment='正确答案')
     analysis = Column(Text, nullable=False, comment='解析')
+    difficulty_level = Column(String(20), nullable=False, default='medium', comment='难度：easy/medium/hard')
+    quality_score = Column(Integer, nullable=False, default=60, comment='题目质量分 0-100')
+    knowledge_tag = Column(String(255), nullable=True, comment='知识点标签')
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp(), comment='创建时间')
     # 移除is_major字段，统一用type区分
 
