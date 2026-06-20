@@ -16,6 +16,18 @@ from utils.cache_manager import invalidate_practice_related_cache
 import json
 
 
+def _parse_json_list(value):
+    """兼容解析 JSON 字段：已是 list/dict 直接返回，字符串才解析，空值返回 []"""
+    if isinstance(value, (list, dict)):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return []
+    return []
+
+
 class ExamPaperService:
     """试卷服务类（复用 PracticeSession 和 PracticeRecord）"""
     
@@ -231,10 +243,10 @@ class ExamPaperService:
                     "id": question.id,
                     "question": question.question,
                     "type": question.type.value,
-                    "options": json.loads(question.options_json) if question.options_json else [],
+                    "options": _parse_json_list(question.options_json),
                     "score": 2,  # 默认分值
                     "user_answer": record.user_answer,
-                    "answer_images": json.loads(record.answer_images) if record.answer_images else [],
+                    "answer_images": _parse_json_list(record.answer_images),
                     "is_correct": record.is_correct if session.status == 'completed' else None,
                     "answer": question.answer if session.status == 'completed' else None,
                     "analysis": question.analysis if session.status == 'completed' else None
@@ -471,7 +483,7 @@ class ExamPaperService:
                 "id": q.id,
                 "question": q.question,
                 "type": q.type.value,
-                "options": json.loads(q.options_json) if q.options_json else [],
+                "options": _parse_json_list(q.options_json),
                 "score": 2  # 默认分值
             })
         return result

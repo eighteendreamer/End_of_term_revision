@@ -110,8 +110,17 @@ class ErrorService:
         
         error_list = []
         for error, question in results:
-            # 解析 JSON 字符串为列表
-            options = json.loads(question.options_json) if question.options_json else []
+            # 解析选项：兼容 JSON 字符串、已是列表、或为空的情况
+            raw_options = question.options_json
+            if isinstance(raw_options, list):
+                options = raw_options
+            elif isinstance(raw_options, str) and raw_options:
+                try:
+                    options = json.loads(raw_options)
+                except (json.JSONDecodeError, TypeError):
+                    options = []
+            else:
+                options = []
             
             error_list.append({
                 "error_id": error.id,
