@@ -2,9 +2,11 @@
 资料管理 API 路由
 """
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
+from urllib.parse import quote
 from database.db import get_default_db
 from services.material_service import MaterialService
 import json
@@ -97,6 +99,42 @@ async def get_materials(
         return {"code": 200, "message": "获取成功", "data": {"materials": materials}}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取资料列表失败: {str(e)}")
+
+
+@router.get("/{material_id}/download")
+async def download_material(
+    material_id: int,
+    user_id: int,
+    db: Session = Depends(get_default_db)
+):
+    """
+    下载/预览资料文件（经后端中转，从 MinIO 取流返回，前端不直接访问 MinIO）
+    """
+    try:
+        stream, filename, content_type = MaterialService.get_material_file(
+            db=db,
+            material_id=material_id,
+            user_id=user_id
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"下载失败: {str(e)}")
+
+    def iter_file():
+        try:
+            for chunk in stream.stream(32 * 1024):
+                yield chunk
+        finally:
+            stream.close()
+            stream.release_conn()
+
+    # 文件名做 URL 编码以支持中文（RFC 5987）
+    encoded_name = quote(filename)
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_name}"
+    }
+    return StreamingResponse(iter_file(), media_type=content_type, headers=headers)
 
 
 @router.get("/{material_id}")

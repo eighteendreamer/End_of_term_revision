@@ -30,6 +30,15 @@
         <n-tag size="small" :type="getMaterialTypeColor(material.material_type)">
           {{ getMaterialTypeLabel(material.material_type) }}
         </n-tag>
+        <n-tag v-if="material.is_owner === false" size="small" type="success">
+          <template #icon><n-icon><earth-outline /></n-icon></template>
+          共享
+        </n-tag>
+      </n-space>
+
+      <!-- 共享来源 -->
+      <n-space v-if="material.is_owner === false && material.owner_username" align="center">
+        <n-text depth="3" style="font-size: 12px;">来自：{{ material.owner_username }}</n-text>
       </n-space>
 
       <!-- 标签 -->
@@ -73,14 +82,15 @@
 </template>
 
 <script setup>
-import { h } from 'vue'
+import { h, computed } from 'vue'
 import { useDialog } from 'naive-ui'
 import {
   EllipsisVertical,
   DocumentTextOutline,
   DocumentOutline,
   ImageOutline,
-  CodeOutline
+  CodeOutline,
+  EarthOutline
 } from '@vicons/ionicons5'
 
 const props = defineProps({
@@ -93,20 +103,15 @@ const props = defineProps({
 const emit = defineEmits(['view', 'edit', 'delete'])
 const dialog = useDialog()
 
-const dropdownOptions = [
-  {
-    label: '查看详情',
-    key: 'view'
-  },
-  {
-    label: '编辑',
-    key: 'edit'
-  },
-  {
-    label: '删除',
-    key: 'delete'
+// 非本人资料（共享而来）只提供「查看详情」，隐藏编辑/删除
+const dropdownOptions = computed(() => {
+  const options = [{ label: '查看详情', key: 'view' }]
+  if (props.material.is_owner !== false) {
+    options.push({ label: '编辑', key: 'edit' })
+    options.push({ label: '删除', key: 'delete' })
   }
-]
+  return options
+})
 
 const handleSelect = (key) => {
   if (key === 'delete') {

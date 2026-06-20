@@ -103,6 +103,19 @@ class MinIOClient:
             print(f"✗ 文件下载失败: {e}")
             raise
     
+    def get_object_stream(self, object_name: str):
+        """
+        获取对象的流式响应（urllib3 HTTPResponse）
+        调用方负责 close() / release_conn()
+        :param object_name: 对象名称
+        :return: 流式响应对象，支持 .stream() 迭代
+        """
+        try:
+            return self.client.get_object(self.bucket_name, object_name)
+        except S3Error as e:
+            print(f"✗ 获取文件流失败: {e}")
+            raise
+
     def delete_file(self, object_name: str) -> bool:
         """
         从MinIO删除文件

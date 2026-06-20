@@ -45,14 +45,14 @@
             </template>
             下载文件
           </n-button>
-          <n-button @click="showEditDialog = true">
+          <n-button v-if="isOwner" @click="showEditDialog = true">
             <template #icon>
               <n-icon><CreateOutline /></n-icon>
             </template>
             编辑信息
           </n-button>
           <n-button
-            v-if="material.status === 'error' || !material.content_text"
+            v-if="isOwner && (material.status === 'error' || !material.content_text)"
             type="warning"
             :loading="extracting"
             @click="handleExtractText"
@@ -63,7 +63,7 @@
             {{ material.status === 'error' ? '重新提取文本' : '提取文本' }}
           </n-button>
           <n-button
-            v-if="material.content_text"
+            v-if="isOwner && material.content_text"
             type="success"
             @click="handleGenerateQuestions"
           >
@@ -72,6 +72,10 @@
             </template>
             生成题目
           </n-button>
+          <n-tag v-if="!isOwner" type="success" size="small" round>
+            <template #icon><n-icon><EarthOutline /></n-icon></template>
+            共享资料{{ material.owner_username ? '（来自 ' + material.owner_username + '）' : '' }}
+          </n-tag>
         </n-space>
 
         <!-- 内容与题目标签页 -->
@@ -237,7 +241,8 @@ import {
   ImageOutline,
   CodeOutline,
   RefreshOutline,
-  BulbOutline
+  BulbOutline,
+  EarthOutline
 } from '@vicons/ionicons5'
 import { materialApi } from '@/api'
 import { useUserStore } from '@/stores/user'
@@ -265,6 +270,9 @@ const showDialog = computed({
   get: () => props.show,
   set: (val) => emit('update:show', val)
 })
+
+// 是否为本人资料（共享而来的资料只读：仅可查看/下载）
+const isOwner = computed(() => material.value?.is_owner !== false)
 
 const loading = ref(false)
 const saving = ref(false)
@@ -313,7 +321,14 @@ const loadMaterialDetail = async () => {
 
 const handleDownload = () => {
   if (material.value?.file_url) {
-    window.open(material.value.file_url, '_blank')
+    // 经后端中转下载（file_url 指向 /api/materials/{id}/download）
+    const a = document.createElement('a')
+    a.href = material.value.file_url
+    a.target = '_blank'
+    a.rel = 'noopener'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
   }
 }
 

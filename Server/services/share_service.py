@@ -71,6 +71,39 @@ class ShareService:
         return subject is not None
     
     @staticmethod
+    def get_accessible_subject_ids(user_id: int, db: Session) -> set:
+        """
+        获取用户可访问的所有科目ID集合（自己的 + 指定共享 + 公共共享）
+
+        Args:
+            user_id: 用户ID
+            db: 数据库会话
+
+        Returns:
+            set[int]: 可访问的科目ID集合
+        """
+        ids = set()
+
+        # 1. 自己创建的科目
+        for (sid,) in db.query(Subject.id).filter(Subject.user_id == user_id).all():
+            ids.add(sid)
+
+        # 2. 指定共享给自己的科目
+        for (sid,) in db.query(SubjectShare.subject_id).filter(
+            SubjectShare.target_user_id == user_id,
+            SubjectShare.share_type == ShareType.USER
+        ).all():
+            ids.add(sid)
+
+        # 3. 公共共享的科目
+        for (sid,) in db.query(SubjectShare.subject_id).filter(
+            SubjectShare.share_type == ShareType.PUBLIC
+        ).all():
+            ids.add(sid)
+
+        return ids
+
+    @staticmethod
     def get_accessible_subjects(user_id: int, db: Session) -> List[Dict[str, Any]]:
         """
         获取用户可访问的所有科目（自己的 + 共享的）

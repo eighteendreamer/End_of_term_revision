@@ -6,7 +6,7 @@ from typing import List, Dict, Any, Optional, BinaryIO
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from datetime import datetime
-from database.models import Material, MaterialQuestion, Subject, Question, MaterialType, MaterialStatus
+from database.models import Material, MaterialQuestion, Subject, Question, MaterialType, MaterialStatus, User
 from utils.minio_client import minio_client
 from services.text_extractor_service import TextExtractorService
 import os
@@ -212,10 +212,20 @@ class MaterialService:
         :param search: 搜索关键词（可选）
         :return: 资料列表
         """
-        query = db.query(Material).filter(Material.user_id == user_id)
-        
-        if subject_id:
-            query = query.filter(Material.subject_id == subject_id)
+        # 计算用户可访问的科目集合（自己的 + 共享/公共科目），
+        # 使共享科目下的资料对被共享用户可见
+        from services.share_service import ShareService
+        accessible_ids = ShareService.get_accessible_subject_ids(user_id, db)
+
+        if subject_id is not None:
+            # 指定科目：无访问权限直接返回空
+            if subject_id not in accessible_ids:
+                return []
+            query = db.query(Material).filter(Material.subject_id == subject_id)
+        else:
+            if not accessible_ids:
+                return []
+            query = db.query(Material).filter(Material.subject_id.in_(accessible_ids))
         
         if material_type and material_type in MaterialType.__members__:
             query = query.filter(Material.material_type == MaterialType[material_type])
@@ -232,6 +242,9 @@ class MaterialService:
         for material in materials:
             # 获取科目名称
             subject = db.query(Subject).filter(Subject.id == material.subject_id).first()
+            # 是否为本人上传（决定能否编辑/删除/生成题目）
+            is_owner = material.user_id == user_id
+            owner = None if is_owner else db.query(User).filter(User.id == material.user_id).first()
             
             result.append({
                 "id": material.id,
@@ -244,12 +257,48 @@ class MaterialService:
                 "tags": material.tags or [],
                 "question_count": material.question_count,
                 "status": material.status.value,
+                "is_owner": is_owner,
+                "owner_username": owner.username if owner else None,
                 "created_at": material.created_at.isoformat(),
                 "updated_at": material.updated_at.isoformat()
             })
         
         return result
     
+    @staticmethod
+    def get_material_file(
+        db: Session,
+        material_id: int,
+        user_id: int
+    ):
+        """
+        获取资料文件流（用于后端中转下载/预览）
+        权限：本人，或对该资料所属科目有访问权（共享/公共）
+        :return: (stream_response, filename, content_type)
+                 stream_response 为 urllib3 HTTPResponse，调用方负责 close/release_conn
+        """
+        material = db.query(Material).filter(Material.id == material_id).first()
+        if not material:
+            raise ValueError("资料不存在或无权访问")
+
+        from services.share_service import ShareService
+        if material.user_id != user_id and not ShareService.can_access_subject(user_id, material.subject_id, db):
+            raise ValueError("资料不存在或无权访问")
+
+        content_type = MaterialService.ALLOWED_EXTENSIONS.get(
+            material.file_type, 'application/octet-stream'
+        )
+
+        # 构造下载文件名：资料名（缺扩展名时补上）
+        base_name = material.name or f"material_{material.id}"
+        if material.file_type and not base_name.lower().endswith('.' + material.file_type.lower()):
+            filename = f"{base_name}.{material.file_type}"
+        else:
+            filename = base_name
+
+        stream = minio_client.get_object_stream(material.file_path)
+        return stream, filename, content_type
+
     @staticmethod
     def get_material_detail(
         db: Session,
@@ -263,17 +312,21 @@ class MaterialService:
         :param user_id: 用户ID
         :return: 资料详情
         """
-        # 验证权限
-        material = db.query(Material).filter(
-            Material.id == material_id,
-            Material.user_id == user_id
-        ).first()
+        # 验证权限：本人，或对该资料所属科目有访问权（共享/公共）
+        material = db.query(Material).filter(Material.id == material_id).first()
         
         if not material:
             raise ValueError("资料不存在或无权访问")
         
+        from services.share_service import ShareService
+        is_owner = material.user_id == user_id
+        if not is_owner and not ShareService.can_access_subject(user_id, material.subject_id, db):
+            raise ValueError("资料不存在或无权访问")
+        
         # 获取科目信息
         subject = db.query(Subject).filter(Subject.id == material.subject_id).first()
+        # 资料上传者信息（共享场景展示来源）
+        owner = None if is_owner else db.query(User).filter(User.id == material.user_id).first()
         
         # 获取关联的题目
         question_links = db.query(MaterialQuestion).filter(
@@ -292,12 +345,8 @@ class MaterialService:
                     "generated_at": link.generated_at.isoformat()
                 })
         
-        # 获取文件下载URL
-        file_url = None
-        try:
-            file_url = minio_client.get_file_url(material.file_path, expires=3600)
-        except:
-            pass
+        # 文件通过后端中转下载（MinIO 端口不对外开放，不能用预签名直链）
+        file_url = f"/api/materials/{material.id}/download?user_id={user_id}"
         
         return {
             "material": {
@@ -314,6 +363,8 @@ class MaterialService:
                 "status": material.status.value,
                 "error_message": material.error_message,
                 "content_text": material.content_text,  # 添加文本内容
+                "is_owner": is_owner,
+                "owner_username": owner.username if owner else None,
                 "created_at": material.created_at.isoformat(),
                 "updated_at": material.updated_at.isoformat()
             },
