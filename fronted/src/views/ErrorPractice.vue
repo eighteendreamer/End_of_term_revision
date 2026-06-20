@@ -18,7 +18,7 @@
       <n-spin :show="loading">
         <n-empty v-if="papers.length === 0" description="暂无错题试卷，点击右上角创建新试卷" />
         
-        <div v-else style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 16px;">
+        <div v-else style="display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 16px;">
           <ExamPaperCard
             v-for="paper in papers"
             :key="paper.id"

@@ -5,12 +5,31 @@
         <n-notification-provider>
           <!-- 主界面 -->
           <n-layout style="height: 100vh">
-            <n-layout-header bordered style="height: 64px; padding: 0 24px; display: flex; align-items: center;">
-              <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
-                <img src="./assets/logo.svg" alt="Logo" style="width: 40px; height: 40px;" />
-                <h2 style="margin: 0;">神阁卷藏</h2>
+            <n-layout-header
+              bordered
+              class="app-header"
+              :style="{ height: headerHeight + 'px', padding: isMobile ? '0 12px' : '0 24px', display: 'flex', alignItems: 'center' }"
+            >
+              <!-- 移动端：汉堡菜单按钮 -->
+              <n-button
+                v-if="isMobile && isLoggedIn"
+                quaternary
+                circle
+                style="margin-right: 8px;"
+                @click="showMobileMenu = true"
+              >
+                <template #icon>
+                  <n-icon size="22"><menu-outline /></n-icon>
+                </template>
+              </n-button>
+
+              <div style="display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0;">
+                <img src="./assets/logo.svg" alt="Logo" :style="{ width: isMobile ? '30px' : '40px', height: isMobile ? '30px' : '40px' }" />
+                <h2 :style="{ margin: 0, fontSize: isMobile ? '16px' : '22px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }">神阁卷藏</h2>
               </div>
-              <n-space v-if="isLoggedIn">
+
+              <!-- 桌面端：完整操作 -->
+              <n-space v-if="isLoggedIn && !isMobile">
                 <n-button @click="showSystemInfo">
                   <template #icon>
                     <n-icon><information-circle-outline /></n-icon>
@@ -27,6 +46,21 @@
                   退出
                 </n-button>
               </n-space>
+
+              <!-- 移动端：操作收进下拉菜单 -->
+              <n-dropdown
+                v-else-if="isLoggedIn && isMobile"
+                trigger="click"
+                :options="userMenuOptions"
+                @select="handleUserMenuSelect"
+              >
+                <n-button quaternary circle>
+                  <template #icon>
+                    <n-icon size="22"><person-circle-outline /></n-icon>
+                  </template>
+                </n-button>
+              </n-dropdown>
+
               <n-space v-else>
                 <n-button type="primary" @click="showAuthModal = true">
                   登录 / 注册
@@ -34,8 +68,10 @@
               </n-space>
             </n-layout-header>
             
-            <n-layout has-sider style="height: calc(100vh - 64px)">
+            <n-layout has-sider :style="{ height: `calc(100vh - ${headerHeight}px)` }">
+              <!-- 桌面/平板：固定侧边栏 -->
               <n-layout-sider
+                v-if="!isMobile"
                 bordered
                 show-trigger
                 collapse-mode="width"
@@ -53,7 +89,7 @@
               </n-layout-sider>
               
               <n-layout-content
-                content-style="padding: 24px;"
+                :content-style="`padding: ${isMobile ? '12px' : '24px'};`"
                 :native-scrollbar="false"
               >
                 <div v-if="!isLoggedIn" style="height: 100%; display: flex; align-items: center; justify-content: center;">
@@ -70,6 +106,21 @@
             </n-layout>
           </n-layout>
 
+          <!-- 移动端抽屉菜单 -->
+          <n-drawer
+            v-model:show="showMobileMenu"
+            :width="260"
+            placement="left"
+          >
+            <n-drawer-content title="神阁卷藏" :native-scrollbar="false" closable>
+              <n-menu
+                :options="menuOptions"
+                :value="activeKey"
+                @update:value="handleMobileMenuSelect"
+              />
+            </n-drawer-content>
+          </n-drawer>
+
           <!-- 登录注册弹窗 -->
           <n-modal 
             v-model:show="showAuthModal" 
@@ -77,7 +128,7 @@
             :close-on-esc="false"
             :closable="false"
             preset="card"
-            style="width: 450px;"
+            :style="{ width: isMobile ? '94vw' : '450px' }"
             title="欢迎使用神阁卷藏"
           >
             <n-tabs v-model:value="authTab" type="segment" animated>
@@ -193,7 +244,7 @@
             :close-on-esc="!isFirstTimeSetup"
             :closable="!isFirstTimeSetup"
             preset="card"
-            style="width: 500px;"
+            :style="{ width: isMobile ? '94vw' : '500px' }"
             :title="isFirstTimeSetup ? '完善账号信息' : '个人信息'"
           >
             <n-alert v-if="isFirstTimeSetup" type="warning" style="margin-bottom: 16px;">
@@ -405,7 +456,10 @@ import {
   NModal,
   NEmpty,
   NSelect,
-  NAlert
+  NAlert,
+  NDrawer,
+  NDrawerContent,
+  NDropdown
 } from 'naive-ui'
 import {
   HomeOutline,
@@ -422,15 +476,25 @@ import {
   TrophyOutline,
   FolderOutline,
   ChatbubbleEllipsesOutline,
-  PersonOutline
+  PersonOutline,
+  MenuOutline,
+  PersonCircleOutline
 } from '@vicons/ionicons5'
 import { authApi, profileApi } from './api'
 import { useUserStore } from './stores/user'
 import { md5 } from './utils/crypto'
+import { useBreakpoint } from './composables/useBreakpoint'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
+
+// 响应式断点
+const { isMobile } = useBreakpoint()
+const headerHeight = computed(() => (isMobile.value ? 52 : 64))
+
+// 移动端抽屉菜单
+const showMobileMenu = ref(false)
 
 // 创建独立的 message 和 notification API
 const { message, notification } = createDiscreteApi(['message', 'notification'])
@@ -963,6 +1027,47 @@ const menuOptions = [
 // 菜单选择处理
 const handleMenuSelect = (key) => {
   router.push(key)
+}
+
+// 移动端抽屉菜单选择处理：跳转后关闭抽屉
+const handleMobileMenuSelect = (key) => {
+  router.push(key)
+  showMobileMenu.value = false
+}
+
+// 移动端用户下拉菜单
+const userMenuOptions = computed(() => [
+  {
+    label: () => h('span', {}, currentUser.value?.username || '用户'),
+    key: 'username-display',
+    disabled: true
+  },
+  { type: 'divider', key: 'd1' },
+  {
+    label: '个人信息',
+    key: 'profile',
+    icon: renderIcon(PersonOutline)
+  },
+  {
+    label: '系统信息',
+    key: 'system-info',
+    icon: renderIcon(InformationCircleOutline)
+  },
+  {
+    label: '退出登录',
+    key: 'logout',
+    icon: renderIcon(LogOutOutline)
+  }
+])
+
+const handleUserMenuSelect = (key) => {
+  if (key === 'profile') {
+    showProfileModal.value = true
+  } else if (key === 'system-info') {
+    showSystemInfo()
+  } else if (key === 'logout') {
+    handleLogout()
+  }
 }
 </script>
 

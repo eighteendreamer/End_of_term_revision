@@ -11,6 +11,7 @@
             v-model:value="filterSubjectId"
             :options="subjectOptions"
             placeholder="全部科目"
+            class="ph-filter-item"
             style="width: 200px"
             clearable
             @update:value="loadHistory"
@@ -35,16 +36,16 @@
           
           <n-list v-else bordered>
             <n-list-item v-for="(record, index) in records" :key="index">
-              <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 8px 0;">
+              <div class="history-row">
                 <!-- 左侧：头像和信息 -->
-                <div style="display: flex; align-items: center; flex: 1; gap: 16px;">
+                <div class="history-main">
                   <n-avatar :style="{ backgroundColor: getGradeColor(record.grade), fontSize: '20px', width: '48px', height: '48px' }">
                     {{ record.grade }}
                   </n-avatar>
                   
-                  <div style="flex: 1;">
+                  <div style="flex: 1; min-width: 0;">
                     <!-- 标题行 -->
-                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
                       <n-text strong style="font-size: 18px;">{{ record.subject_name }}</n-text>
                       <n-tag :type="getGradeTagType(record.grade)" size="medium">
                         {{ record.grade }} 级
@@ -88,7 +89,7 @@
                 </div>
                 
                 <!-- 右侧：查看详情按钮 -->
-                <div style="margin-left: 24px;">
+                <div class="history-action">
                   <n-button type="primary" size="large" @click="viewDetails(record.session_id)">
                     查看详情
                   </n-button>
@@ -108,7 +109,7 @@
 
       <!-- 统计卡片 -->
       <n-card title="练习统计">
-        <n-grid cols="4" x-gap="12" responsive="screen">
+        <n-grid cols="2 s:2 m:4" x-gap="12" y-gap="12" responsive="screen">
           <n-gi>
             <n-statistic label="总练习次数" :value="stats.totalSessions">
               <template #suffix>次</template>
@@ -365,5 +366,48 @@ onMounted(async () => {
 
 :deep(.n-statistic) {
   text-align: center;
+}
+
+/* 记录行布局 */
+.history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 0;
+}
+
+.history-main {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 16px;
+  min-width: 0;
+}
+
+.history-action {
+  margin-left: 24px;
+  flex-shrink: 0;
+}
+
+/* 窄屏：记录行改为纵向堆叠，按钮占满宽度 */
+@media (max-width: 768px) {
+  :deep(.n-list-item) {
+    padding: 16px;
+  }
+  .history-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+  }
+  .history-action {
+    margin-left: 0;
+  }
+  .history-action .n-button {
+    width: 100%;
+  }
+  .ph-filter-item {
+    width: 100% !important;
+  }
 }
 </style>

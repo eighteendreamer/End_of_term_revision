@@ -2,7 +2,7 @@
   <div class="leaderboard-page">
     <n-page-header title="排行榜" subtitle="查看综合实力排名">
       <template #extra>
-        <n-space :size="12" :wrap="false">
+        <n-space :size="12" :wrap="true" class="lb-filters">
           <!-- 榜单类型切换 -->
           <n-select
             v-model:value="currentTab"
@@ -51,8 +51,28 @@
             </div>
             
             <div v-else>
+              <!-- 移动端：我的排名概览（窄屏隐藏了右侧个人面板，这里补充） -->
+              <div v-if="isMobile && personalStats" class="my-rank-card">
+                <n-avatar :size="44" round color="#18a058" class="my-rank-avatar">
+                  {{ personalStats.username.charAt(0) }}
+                </n-avatar>
+                <div class="my-rank-info">
+                  <span class="my-rank-name">{{ personalStats.username }}</span>
+                  <span class="my-rank-sub">
+                    <template v-if="personalStats.ranks && personalStats.ranks.comprehensive">
+                      综合第 {{ personalStats.ranks.comprehensive }} 名
+                    </template>
+                    <template v-else>暂无排名</template>
+                  </span>
+                </div>
+                <div class="my-rank-score">
+                  <span class="my-rank-score-num">{{ personalStats.score.toFixed(1) }}</span>
+                  <span class="my-rank-score-label">综合得分</span>
+                </div>
+              </div>
+
               <!-- 前三名领奖台 -->
-              <div v-if="topThree.length > 0" class="podium">
+              <div v-if="topThree.length > 0" class="podium" :class="{ 'podium-mobile': isMobile }">
                 <!-- 第二名 -->
                 <div v-if="topThree[1]" class="podium-item rank-2">
                   <div class="podium-avatar-wrapper silver">
@@ -120,16 +140,43 @@
                 </div>
               </div>
 
-              <!-- 排行榜表格 -->
+              <!-- 排行榜：桌面端表格 -->
               <n-data-table
-                v-if="restList.length > 0"
+                v-if="!isMobile && restList.length > 0"
                 :columns="columns"
                 :data="restList"
                 :pagination="false"
                 :bordered="false"
+                :scroll-x="760"
                 striped
                 style="margin-top: 32px;"
               />
+
+              <!-- 排行榜：移动端卡片列表 -->
+              <div v-else-if="isMobile && restList.length > 0" class="rank-list">
+                <div
+                  v-for="row in restList"
+                  :key="row.user_id"
+                  class="rank-row"
+                  :class="{ 'is-me': row.user_id === userId }"
+                >
+                  <div class="rank-no">{{ String(row.rank).padStart(2, '0') }}</div>
+                  <n-avatar :size="38" round color="#18a058" class="rank-avatar">
+                    {{ row.username.charAt(0) }}
+                  </n-avatar>
+                  <div class="rank-info">
+                    <div class="rank-name">
+                      {{ row.username }}
+                      <span v-if="row.user_id === userId" class="me-tag">我</span>
+                    </div>
+                    <div class="rank-sub">正确率 {{ row.accuracy }}% · {{ row.total_count }} 题</div>
+                  </div>
+                  <div class="rank-score-col">
+                    <span class="rank-score-num">{{ row.score.toFixed(1) }}</span>
+                    <span class="rank-score-label">得分</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </n-card>
         </div>
@@ -244,11 +291,13 @@ import {
 import { useUserStore } from '@/stores/user'
 import { storeToRefs } from 'pinia'
 import * as echarts from 'echarts'
+import { useBreakpoint } from '@/composables/useBreakpoint'
 
 const message = useMessage()
 const loading = ref(false)
 const userStore = useUserStore()
 const { userId } = storeToRefs(userStore)
+const { isMobile } = useBreakpoint()
 
 // ECharts refs
 const practiceChartRef = ref(null)
@@ -1101,31 +1150,223 @@ onMounted(() => {
 }
 
 @media (max-width: 768px) {
-  .podium {
-    flex-direction: column;
-    align-items: center;
-    gap: 24px;
+  /* 紧凑横向领奖台：保留 2-1-3 站位，整体缩小以适配窄屏 */
+  .podium.podium-mobile {
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 6px;
     min-height: auto;
+    margin: 12px 0 24px;
   }
-  
-  .podium-item.rank-1 {
+
+  .podium-mobile .podium-item.rank-1 {
     margin-top: 0;
-    order: 1;
-  }
-  
-  .podium-item.rank-2 {
     order: 2;
+    width: 38%;
   }
-  
-  .podium-item.rank-3 {
+  .podium-mobile .podium-item.rank-2 {
+    order: 1;
+    width: 31%;
+  }
+  .podium-mobile .podium-item.rank-3 {
     order: 3;
+    width: 31%;
   }
-  
-  .podium-item.rank-1,
-  .podium-item.rank-2,
-  .podium-item.rank-3 {
+
+  /* 缩小头像（n-avatar 尺寸为内联，需 !important 覆盖） */
+  .podium-mobile .podium-avatar {
+    width: 56px !important;
+    height: 56px !important;
+    font-size: 22px !important;
+  }
+  .podium-mobile .rank-1 .podium-avatar {
+    width: 68px !important;
+    height: 68px !important;
+    font-size: 26px !important;
+  }
+  .podium-mobile .podium-avatar-wrapper {
+    margin-bottom: 16px;
+  }
+
+  /* 缩小徽章与文字 */
+  .podium-mobile .rank-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+  }
+  .podium-mobile .rank-badge.gold {
+    font-size: 11px;
+    padding: 3px 12px;
+  }
+  .podium-mobile .podium-info :deep(.n-text) {
+    font-size: 13px !important;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .podium-mobile .student-id-highlight {
+    font-size: 11px !important;
+    padding: 2px 8px;
+  }
+  .podium-mobile .podium-score {
+    font-size: 16px;
+    margin-top: 4px;
+  }
+  .podium-mobile .podium-score.champion {
+    font-size: 22px;
+  }
+  /* 隐藏第一名旋转光环（窄屏空间有限） */
+  .podium-mobile .glow-ring {
+    display: none;
+  }
+
+  /* ===== 我的排名概览卡片 ===== */
+  .my-rank-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    margin-bottom: 8px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #18a058 0%, #36ad6a 100%);
+    color: #fff;
+    box-shadow: 0 4px 14px rgba(24, 160, 88, 0.25);
+  }
+  .my-rank-avatar {
+    border: 2px solid rgba(255, 255, 255, 0.7) !important;
+    color: #18a058 !important;
+    background: #fff !important;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .my-rank-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+  }
+  .my-rank-name {
+    font-size: 15px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .my-rank-sub {
+    font-size: 12px;
+    opacity: 0.85;
+  }
+  .my-rank-score {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    flex-shrink: 0;
+  }
+  .my-rank-score-num {
+    font-size: 22px;
+    font-weight: 800;
+    font-family: 'Rajdhani', 'Courier New', monospace;
+    line-height: 1.1;
+  }
+  .my-rank-score-label {
+    font-size: 11px;
+    opacity: 0.85;
+  }
+
+  /* ===== 移动端榜单卡片列表 ===== */
+  .rank-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 20px;
+  }
+  .rank-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: #fafafa;
+    border: 1px solid #f0f0f0;
+  }
+  .rank-row.is-me {
+    background: rgba(24, 160, 88, 0.08);
+    border-color: rgba(24, 160, 88, 0.3);
+  }
+  .rank-no {
+    width: 28px;
+    text-align: center;
+    font-size: 15px;
+    font-weight: 700;
+    color: #999;
+    flex-shrink: 0;
+    font-family: 'Rajdhani', 'Courier New', monospace;
+  }
+  .rank-avatar {
+    flex-shrink: 0;
+    color: #fff !important;
+    font-weight: 600;
+  }
+  .rank-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .rank-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1f2937;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .me-tag {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 600;
+    color: #18a058;
+    background: rgba(24, 160, 88, 0.12);
+    padding: 1px 6px;
+    border-radius: 8px;
+  }
+  .rank-sub {
+    font-size: 11px;
+    color: #9ca3af;
+    margin-top: 2px;
+  }
+  .rank-score-col {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    flex-shrink: 0;
+  }
+  .rank-score-num {
+    font-size: 17px;
+    font-weight: 700;
+    color: #2080f0;
+    font-family: 'Rajdhani', 'Courier New', monospace;
+    line-height: 1.1;
+  }
+  .rank-score-label {
+    font-size: 10px;
+    color: #9ca3af;
+  }
+}
+
+/* 窄屏：排行榜筛选控件自适应换行、占满宽度 */
+@media (max-width: 768px) {
+  .lb-filters {
     width: 100%;
-    max-width: 280px;
+  }
+  .lb-filters :deep(.n-select),
+  .lb-filters :deep(.n-input) {
+    width: 100% !important;
+    min-width: 120px;
+    flex: 1 1 120px;
   }
 }
 </style>

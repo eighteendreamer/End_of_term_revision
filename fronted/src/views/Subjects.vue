@@ -20,7 +20,7 @@
         style="margin-top: 60px;"
       />
       
-      <div v-else style="display: grid; grid-template-columns: repeat(auto-fill, minmax(450px, 450px)); gap: 24px; padding: 8px; margin-top: 24px;">
+      <div v-else class="subjects-grid">
         <n-card
           v-for="subject in subjects"
           :key="subject.id"
@@ -32,18 +32,22 @@
               <n-space align="center">
                 <!-- 共享标识 -->
                 <n-tag v-if="!subject.is_owner && subject.share_type === 'USER'" type="info" size="small">
-                  🤝 共享
+                  <template #icon><n-icon><people-outline /></n-icon></template>
+                  共享
                 </n-tag>
                 <n-tag v-else-if="!subject.is_owner && subject.share_type === 'PUBLIC'" type="success" size="small">
-                  🌍 公共
+                  <template #icon><n-icon><earth-outline /></n-icon></template>
+                  公共
                 </n-tag>
                 <n-tag v-else type="default" size="small">
-                  📘 我的
+                  <template #icon><n-icon><book-outline /></n-icon></template>
+                  我的
                 </n-tag>
                 
                 <!-- 已共享标识（对于拥有者） -->
                 <n-tag v-if="subject.is_owner && subject.has_shared" type="warning" size="small">
-                  ✨ 已共享
+                  <template #icon><n-icon><sparkles-outline /></n-icon></template>
+                  已共享
                 </n-tag>
               </n-space>
               
@@ -65,10 +69,10 @@
             <n-space vertical size="small" class="subject-info">
               <!-- 显示拥有者信息（共享时） -->
               <n-text v-if="subject.owner_username" depth="3" style="font-size: 13px;">
-                📤 来自：{{ subject.owner_username }}
+                <span class="info-line"><n-icon :size="14"><paper-plane-outline /></n-icon>来自：{{ subject.owner_username }}</span>
               </n-text>
               <n-text depth="3" style="font-size: 13px;">
-                🕒 创建时间：{{ subject.created_at }}
+                <span class="info-line"><n-icon :size="14"><time-outline /></n-icon>创建时间：{{ subject.created_at }}</span>
               </n-text>
             </n-space>
           </div>
@@ -143,7 +147,13 @@
                 <n-space align="center" justify="space-between" style="width: 100%;">
                   <n-space align="center">
                     <n-tag :type="share.share_type === 'PUBLIC' ? 'success' : 'info'" size="small">
-                      {{ share.share_type === 'PUBLIC' ? '🌍 公共' : '🤝 用户' }}
+                      <template #icon>
+                        <n-icon>
+                          <earth-outline v-if="share.share_type === 'PUBLIC'" />
+                          <people-outline v-else />
+                        </n-icon>
+                      </template>
+                      {{ share.share_type === 'PUBLIC' ? '公共' : '用户' }}
                     </n-tag>
                     <n-text>{{ share.share_type === 'PUBLIC' ? '所有用户可见' : share.target_username }}</n-text>
                   </n-space>
@@ -164,7 +174,7 @@
 import { ref, onMounted, h } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { subjectApi, shareApi } from '@/api'
-import { AddOutline, EllipsisHorizontalOutline, TrashOutline, ShareSocialOutline } from '@vicons/ionicons5'
+import { AddOutline, EllipsisHorizontalOutline, TrashOutline, ShareSocialOutline, PeopleOutline, EarthOutline, BookOutline, SparklesOutline, PaperPlaneOutline, TimeOutline } from '@vicons/ionicons5'
 import { NIcon } from 'naive-ui'
 import { useUserStore } from '@/stores/user'
 import { storeToRefs } from 'pinia'
@@ -395,6 +405,22 @@ onMounted(() => {
 
 
 <style scoped>
+/* 信息行（图标 + 文字） */
+.info-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 科目卡片网格 */
+.subjects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(450px, 450px));
+  gap: 24px;
+  padding: 8px;
+  margin-top: 24px;
+}
+
 /* 科目卡片样式 */
 .subject-card {
   width: 450px;
@@ -436,5 +462,19 @@ onMounted(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
+}
+
+/* 窄屏：科目卡片单列、宽度占满、高度自适应 */
+@media (max-width: 768px) {
+  .subjects-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    padding: 0;
+  }
+  .subject-card {
+    width: 100%;
+    height: auto;
+    min-height: 180px;
+  }
 }
 </style>

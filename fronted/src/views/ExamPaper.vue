@@ -18,9 +18,12 @@
 
     <!-- 练习中 -->
     <n-spin :show="loading">
-      <div v-if="!loading && questions.length > 0" style="display: flex; gap: 16px; margin-top: 24px;">
+      <div
+        v-if="!loading && questions.length > 0"
+        :style="{ display: 'flex', gap: '16px', marginTop: '24px', flexDirection: isMobile ? 'column' : 'row' }"
+      >
         <!-- 左侧题目区域 - 显示所有题目 -->
-        <div style="flex: 1;">
+        <div style="flex: 1; min-width: 0;">
           <n-space vertical size="large">
             <n-card 
               v-for="(question, qIndex) in questions" 
@@ -28,7 +31,7 @@
               :id="`question-${qIndex}`"
             >
               <template #header>
-                <div style="display: flex; align-items: center; gap: 8px;">
+                <div style="display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap;">
                   <span>{{ qIndex + 1 }}.({{ getTypeLabel(question.type) }}) </span>
                   <TableRenderer :content="question.question" />
                 </div>
@@ -93,8 +96,8 @@
           </n-space>
         </div>
 
-        <!-- 右侧答题卡 - 固定定位 -->
-        <div style="width: 300px; position: sticky; top: 24px; align-self: flex-start;">
+        <!-- 桌面端：右侧答题卡 - 固定定位 -->
+        <div v-if="!isMobile" style="width: 300px; position: sticky; top: 24px; align-self: flex-start;">
           <n-card :title="`答题卡 (${answeredCount}/${questions.length})`" size="small">
             <n-space vertical size="large">
               <!-- 题号网格 -->
@@ -126,6 +129,48 @@
           </n-card>
         </div>
       </div>
+
+      <!-- 移动端：底部悬浮操作栏 -->
+      <div
+        v-if="isMobile && !loading && questions.length > 0"
+        class="mobile-answer-bar"
+      >
+        <n-button style="flex: 1;" @click="showAnswerSheet = true">
+          答题卡 ({{ answeredCount }}/{{ questions.length }})
+        </n-button>
+        <n-button
+          v-if="isInProgress"
+          type="primary"
+          style="flex: 1;"
+          :loading="submitting"
+          @click="submitAnswers"
+        >
+          提交
+        </n-button>
+      </div>
+
+      <!-- 移动端：答题卡抽屉 -->
+      <n-drawer
+        v-if="isMobile"
+        v-model:show="showAnswerSheet"
+        placement="bottom"
+        :height="340"
+      >
+        <n-drawer-content :title="`答题卡 (${answeredCount}/${questions.length})`" :native-scrollbar="false" closable>
+          <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px;">
+            <n-button
+              v-for="(q, idx) in questions"
+              :key="idx"
+              :type="isAnswered(idx) ? 'primary' : 'default'"
+              size="medium"
+              @click="handleSheetJump(idx)"
+              style="width: 100%;"
+            >
+              {{ idx + 1 }}
+            </n-button>
+          </div>
+        </n-drawer-content>
+      </n-drawer>
     </n-spin>
   </div>
 </template>
@@ -141,12 +186,23 @@ import FormulaRenderer from '@/components/FormulaRenderer.vue'
 import TableRenderer from '@/components/TableRenderer.vue'
 import ImageUploader from '@/components/ImageUploader.vue'
 import CountdownTimer from '@/components/CountdownTimer.vue'
+import { useBreakpoint } from '@/composables/useBreakpoint'
 
 const message = useMessage()
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 const { userId } = storeToRefs(userStore)
+
+// 响应式：移动端答题卡改为底部抽屉
+const { isMobile } = useBreakpoint()
+const showAnswerSheet = ref(false)
+
+// 移动端答题卡跳题：跳转后关闭抽屉
+const handleSheetJump = (index) => {
+  scrollToQuestion(index)
+  showAnswerSheet.value = false
+}
 
 const loading = ref(false)
 const submitting = ref(false)
@@ -327,3 +383,28 @@ onMounted(() => {
   loadPaper()
 })
 </script>
+
+<style scoped>
+/* 移动端底部悬浮操作栏 */
+.mobile-answer-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  display: flex;
+  gap: 12px;
+  padding: 10px 12px;
+  padding-bottom: calc(10px + var(--safe-bottom, 0px));
+  background: var(--n-color, #fff);
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* 为底部操作栏预留空间，避免遮挡最后一道题 */
+@media (max-width: 768px) {
+  .n-spin-content {
+    padding-bottom: 72px;
+  }
+}
+</style>

@@ -60,7 +60,7 @@
       <n-spin :show="loading">
         <n-empty v-if="materials.length === 0" description="暂无资料，点击右上角上传资料" />
         
-        <div v-else style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;">
+        <div v-else style="display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 16px;">
           <MaterialCard
             v-for="material in materials"
             :key="material.id"

@@ -23,7 +23,7 @@
           v-for="model in models"
           :key="model.id"
           hoverable
-          :style="{ width: '420px', height: '190px' }"
+          :style="{ width: 'min(100%, 420px)', minHeight: '190px' }"
         >
           <template #header>
             <div style="display: flex; align-items: center; gap: 12px;">

@@ -37,12 +37,12 @@
           />
 
           <n-space vertical v-else>
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 300px)); gap: 16px; padding: 8px;">
+            <div class="error-grid">
               <n-card
                 v-for="(error, index) in paginatedErrors"
                 :key="error.error_id"
                 hoverable
-                style="width: 300px; height: 460px; display: flex; flex-direction: column;"
+                class="error-card"
               >
                 <!-- 卡片头部 -->
                 <template #header>
@@ -254,3 +254,32 @@ onMounted(() => {
   loadErrors()
 })
 </script>
+
+<style scoped>
+/* 错题卡片网格 */
+.error-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 300px));
+  gap: 16px;
+  padding: 8px;
+}
+
+.error-card {
+  width: 300px;
+  height: 460px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 窄屏：单列、占满宽度、高度自适应 */
+@media (max-width: 768px) {
+  .error-grid {
+    grid-template-columns: 1fr;
+    padding: 0;
+  }
+  .error-card {
+    width: 100%;
+    height: auto;
+  }
+}
+</style>

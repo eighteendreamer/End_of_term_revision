@@ -6,11 +6,12 @@
     <n-space vertical size="large" style="margin-top: 24px;">
       <!-- 筛选区域 -->
       <n-card>
-        <n-space>
+        <n-space class="qb-filters">
           <n-select
             v-model:value="filterSubjectId"
             :options="subjectOptions"
             placeholder="选择科目"
+            class="qb-filter-item"
             style="width: 200px"
             clearable
             @update:value="loadQuestions"
@@ -19,6 +20,7 @@
             v-model:value="filterType"
             :options="typeOptions"
             placeholder="题目类型"
+            class="qb-filter-item"
             style="width: 150px"
             clearable
             @update:value="loadQuestions"
@@ -26,6 +28,7 @@
           <n-input
             v-model:value="searchKeyword"
             placeholder="搜索题目内容"
+            class="qb-filter-item"
             style="width: 300px"
             clearable
             @keyup.enter="loadQuestions"
@@ -461,5 +464,16 @@ onMounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   display: inline;
+}
+
+/* 窄屏：筛选控件占满宽度、自动换行 */
+@media (max-width: 768px) {
+  .qb-filters {
+    width: 100%;
+  }
+  .qb-filters .qb-filter-item {
+    width: 100% !important;
+    flex: 1 1 100%;
+  }
 }
 </style>

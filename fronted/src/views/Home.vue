@@ -15,12 +15,18 @@
 
     <n-spin :show="loading">
       <n-space vertical size="large" style="margin-top: 24px;">
-        <!-- 统计图表区域 -->
-        <n-grid cols="3" x-gap="16">
+        <!-- 统计图表区域（桌面 / 平板） -->
+        <n-grid v-if="!isMobile" cols="1 s:1 m:3" responsive="screen" :x-gap="16" :y-gap="16">
           <!-- 今日统计 -->
           <n-gi>
-            <n-card title="📅 今日统计" hoverable size="small">
-              <div ref="todayChartRef" style="width: 100%; height: 350px;"></div>
+            <n-card hoverable size="small">
+              <template #header>
+                <span class="card-title">
+                  <n-icon :size="18" color="#18a058"><calendar-outline /></n-icon>
+                  今日统计
+                </span>
+              </template>
+              <div ref="todayChartRef" :style="{ width: '100%', height: chartHeight }"></div>
               <n-divider style="margin: 20px 0;" />
               <n-space vertical size="small" style="text-align: center;">
                 <n-statistic label="练习题数" :value="stats.today.total_count">
@@ -41,8 +47,14 @@
 
           <!-- 本周统计 -->
           <n-gi>
-            <n-card title="📊 本周统计" hoverable size="small">
-              <div ref="weekChartRef" style="width: 100%; height: 350px;"></div>
+            <n-card hoverable size="small">
+              <template #header>
+                <span class="card-title">
+                  <n-icon :size="18" color="#2080f0"><bar-chart-outline /></n-icon>
+                  本周统计
+                </span>
+              </template>
+              <div ref="weekChartRef" :style="{ width: '100%', height: chartHeight }"></div>
               <n-divider style="margin: 20px 0;" />
               <n-space vertical size="small" style="text-align: center;">
                 <n-statistic label="练习题数" :value="stats.week.total_count">
@@ -63,8 +75,14 @@
 
           <!-- 全部统计 -->
           <n-gi>
-            <n-card title="📈 全部统计" hoverable size="small">
-              <div ref="allChartRef" style="width: 100%; height: 350px;"></div>
+            <n-card hoverable size="small">
+              <template #header>
+                <span class="card-title">
+                  <n-icon :size="18" color="#f0a020"><trending-up-outline /></n-icon>
+                  全部统计
+                </span>
+              </template>
+              <div ref="allChartRef" :style="{ width: '100%', height: chartHeight }"></div>
               <n-divider style="margin: 20px 0;" />
               <n-space vertical size="small" style="text-align: center;">
                 <n-statistic label="总练习题数" :value="stats.all.total_count">
@@ -84,8 +102,66 @@
           </n-gi>
         </n-grid>
 
+        <!-- 统计卡片（移动端紧凑版） -->
+        <div v-if="isMobile" class="m-stats">
+          <div
+            v-for="card in periodCards"
+            :key="card.key"
+            class="m-stat-card"
+          >
+            <div class="m-stat-head">
+              <span class="m-stat-title">
+                <n-icon :size="17" :color="card.color"><component :is="card.icon" /></n-icon>
+                {{ card.title }}
+              </span>
+              <span class="m-grade" :style="{ color: getGradeColor(card.data.grade) }">
+                {{ card.data.grade }}
+              </span>
+            </div>
+
+            <div class="m-stat-body">
+              <!-- 正确率圆环 -->
+              <div class="m-ring" :style="ringStyle(card.data)">
+                <div class="m-ring-inner">
+                  <span class="m-ring-acc" :style="{ color: getGradeColor(card.data.grade) }">
+                    {{ card.data.accuracy }}%
+                  </span>
+                  <span class="m-ring-label">正确率</span>
+                </div>
+              </div>
+
+              <!-- 数字统计 -->
+              <div class="m-nums">
+                <div class="m-num">
+                  <b>{{ card.data.total_count }}</b>
+                  <span>{{ card.key === 'all' ? '总题数' : '题数' }}</span>
+                </div>
+                <div class="m-num m-num-correct">
+                  <b>{{ card.data.correct_count }}</b>
+                  <span>正确</span>
+                </div>
+                <div class="m-num m-num-wrong">
+                  <b>{{ card.data.wrong_count }}</b>
+                  <span>错误</span>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="card.key === 'all'" class="m-streak">
+              <n-icon :size="14"><flame-outline /></n-icon>
+              连续学习 {{ stats.consecutive_days }} 天
+            </div>
+          </div>
+        </div>
+
         <!-- 等级说明 -->
-        <n-card title="📝 等级评价标准">
+        <n-card>
+          <template #header>
+            <span class="card-title">
+              <n-icon :size="18" color="#18a058"><document-text-outline /></n-icon>
+              等级评价标准
+            </span>
+          </template>
           <n-space>
             <n-tag type="success">A: ≥90%</n-tag>
             <n-tag type="info">B: 80-89%</n-tag>
@@ -96,9 +172,18 @@
         </n-card>
 
         <!-- 使用教程 -->
-        <n-card title="📚 使用教程" hoverable>
+        <n-card hoverable>
+          <template #header>
+            <span class="card-title">
+              <n-icon :size="18" color="#2080f0"><library-outline /></n-icon>
+              使用教程
+            </span>
+          </template>
           <n-collapse>
-            <n-collapse-item title="🏠 首页统计" name="0">
+            <n-collapse-item name="0">
+              <template #header>
+                <span class="tut-title"><n-icon :size="16"><home-outline /></n-icon>首页统计</span>
+              </template>
               <n-space vertical>
                 <n-text strong type="primary">✨ 一目了然的学习数据可视化</n-text>
                 <n-divider style="margin: 8px 0;" />
@@ -110,7 +195,10 @@
               </n-space>
             </n-collapse-item>
 
-            <n-collapse-item title="1️⃣ 科目管理" name="1">
+            <n-collapse-item name="1">
+              <template #header>
+                <span class="tut-title"><n-icon :size="16"><book-outline /></n-icon>科目管理</span>
+              </template>
               <n-space vertical>
                 <n-text strong type="primary">📚 创建和管理你的学习科目</n-text>
                 <n-divider style="margin: 8px 0;" />
@@ -123,7 +211,10 @@
               </n-space>
             </n-collapse-item>
 
-            <n-collapse-item title="2️⃣ 导入题目（AI智能识别）" name="2">
+            <n-collapse-item name="2">
+              <template #header>
+                <span class="tut-title"><n-icon :size="16"><cloud-upload-outline /></n-icon>导入题目（AI智能识别）</span>
+              </template>
               <n-space vertical>
                 <n-text strong type="success">✨ 核心功能：利用 AI 视觉模型直接识别图片中的题目</n-text>
                 <n-divider style="margin: 8px 0;" />
@@ -147,7 +238,10 @@
               </n-space>
             </n-collapse-item>
 
-            <n-collapse-item title="3️⃣ 题库管理" name="3">
+            <n-collapse-item name="3">
+              <template #header>
+                <span class="tut-title"><n-icon :size="16"><library-outline /></n-icon>题库管理</span>
+              </template>
               <n-space vertical>
                 <n-text strong type="primary">📖 浏览和管理题库内容</n-text>
                 <n-divider style="margin: 8px 0;" />
@@ -165,7 +259,10 @@
               </n-space>
             </n-collapse-item>
 
-            <n-collapse-item title="4️⃣ 开始练习" name="4">
+            <n-collapse-item name="4">
+              <template #header>
+                <span class="tut-title"><n-icon :size="16"><create-outline /></n-icon>开始练习</span>
+              </template>
               <n-space vertical>
                 <n-text strong type="primary">✍️ 开始你的刷题之旅</n-text>
                 <n-divider style="margin: 8px 0;" />
@@ -191,7 +288,10 @@
               </n-space>
             </n-collapse-item>
 
-            <n-collapse-item title="5️⃣ 错题集" name="5">
+            <n-collapse-item name="5">
+              <template #header>
+                <span class="tut-title"><n-icon :size="16"><alert-circle-outline /></n-icon>错题集</span>
+              </template>
               <n-space vertical>
                 <n-text strong type="error">🔴 重点功能：攻克薄弱环节的利器</n-text>
                 <n-divider style="margin: 8px 0;" />
@@ -216,7 +316,10 @@
               </n-space>
             </n-collapse-item>
 
-            <n-collapse-item title="6️⃣ 做题记录" name="6">
+            <n-collapse-item name="6">
+              <template #header>
+                <span class="tut-title"><n-icon :size="16"><time-outline /></n-icon>做题记录</span>
+              </template>
               <n-space vertical>
                 <n-text strong type="primary">📝 追踪你的学习轨迹</n-text>
                 <n-divider style="margin: 8px 0;" />
@@ -240,7 +343,10 @@
               </n-space>
             </n-collapse-item>
 
-            <n-collapse-item title="7️⃣ 排行榜系统" name="7">
+            <n-collapse-item name="7">
+              <template #header>
+                <span class="tut-title"><n-icon :size="16"><trophy-outline /></n-icon>排行榜系统</span>
+              </template>
               <n-space vertical>
                 <n-text strong type="warning">🏆 激励功能：与他人竞技，激发学习动力</n-text>
                 <n-divider style="margin: 8px 0;" />
@@ -264,7 +370,10 @@
               </n-space>
             </n-collapse-item>
 
-            <n-collapse-item title="8️⃣ 试卷生成" name="8">
+            <n-collapse-item name="8">
+              <template #header>
+                <span class="tut-title"><n-icon :size="16"><document-text-outline /></n-icon>试卷生成</span>
+              </template>
               <n-space vertical>
                 <n-text strong type="primary">📄 智能组卷，模拟考试</n-text>
                 <n-divider style="margin: 8px 0;" />
@@ -283,7 +392,10 @@
               </n-space>
             </n-collapse-item>
 
-            <n-collapse-item title="9️⃣ 学习资料" name="9">
+            <n-collapse-item name="9">
+              <template #header>
+                <span class="tut-title"><n-icon :size="16"><folder-outline /></n-icon>学习资料</span>
+              </template>
               <n-space vertical>
                 <n-text strong type="primary">📚 课件、笔记、资料管理中心</n-text>
                 <n-divider style="margin: 8px 0;" />
@@ -301,7 +413,10 @@
               </n-space>
             </n-collapse-item>
 
-            <n-collapse-item title="⚙️ AI 模型配置" name="11">
+            <n-collapse-item name="11">
+              <template #header>
+                <span class="tut-title"><n-icon :size="16"><settings-outline /></n-icon>AI 模型配置</span>
+              </template>
               <n-space vertical>
                 <n-text strong type="warning">🔑 配置 AI 服务，解锁智能功能</n-text>
                 <n-divider style="margin: 8px 0;" />
@@ -320,7 +435,10 @@
               </n-space>
             </n-collapse-item>
 
-            <n-collapse-item title="💡 高效学习策略" name="12">
+            <n-collapse-item name="12">
+              <template #header>
+                <span class="tut-title"><n-icon :size="16"><bulb-outline /></n-icon>高效学习策略</span>
+              </template>
               <n-space vertical>
                 <n-text strong type="success">🎯 科学方法，事半功倍</n-text>
                 <n-divider style="margin: 8px 0;" />
@@ -348,18 +466,23 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch, nextTick, onBeforeUnmount } from 'vue'
+import { ref, onMounted, watch, nextTick, onBeforeUnmount, computed } from 'vue'
 import { useMessage } from 'naive-ui'
 import { practiceApi } from '@/api'
-import { RefreshOutline } from '@vicons/ionicons5'
+import { RefreshOutline, CalendarOutline, BarChartOutline, TrendingUpOutline, DocumentTextOutline, LibraryOutline, FlameOutline, HomeOutline, BookOutline, CloudUploadOutline, CreateOutline, AlertCircleOutline, TimeOutline, TrophyOutline, FolderOutline, SettingsOutline, BulbOutline } from '@vicons/ionicons5'
 import { useUserStore } from '@/stores/user'
 import { storeToRefs } from 'pinia'
 import * as echarts from 'echarts'
+import { useBreakpoint } from '@/composables/useBreakpoint'
 
 const message = useMessage()
 const loading = ref(false)
 const userStore = useUserStore()
 const { userId } = storeToRefs(userStore)
+
+// 响应式：移动端图表高度略降，避免堆叠后过高
+const { isMobile, width } = useBreakpoint()
+const chartHeight = computed(() => (isMobile.value ? '300px' : '350px'))
 
 // ECharts 实例引用
 const todayChartRef = ref(null)
@@ -418,6 +541,22 @@ const getGradeColor = (grade) => {
   return '#d03050'
 }
 
+// 移动端紧凑统计卡片数据
+const periodCards = computed(() => [
+  { key: 'today', title: '今日统计', icon: CalendarOutline, color: '#18a058', data: stats.value.today },
+  { key: 'week', title: '本周统计', icon: BarChartOutline, color: '#2080f0', data: stats.value.week },
+  { key: 'all', title: '全部统计', icon: TrendingUpOutline, color: '#f0a020', data: stats.value.all }
+])
+
+// 移动端圆环：用 conic-gradient 表示正确率占比
+const ringStyle = (data) => {
+  const total = (data.correct_count || 0) + (data.wrong_count || 0)
+  const acc = total > 0 ? (data.correct_count / total) * 100 : 0
+  return {
+    background: `conic-gradient(#18a058 0% ${acc}%, #d03050 ${acc}% 100%)`
+  }
+}
+
 // 加载数据
 const loadData = async () => {
   loading.value = true
@@ -436,6 +575,8 @@ const loadData = async () => {
 
 // 初始化所有图表
 const initCharts = () => {
+  // 移动端使用紧凑卡片，不渲染 ECharts
+  if (isMobile.value) return
   initTodayChart()
   initWeekChart()
   initAllChart()
@@ -725,6 +866,13 @@ onMounted(() => {
   window.addEventListener('resize', handleResize)
 })
 
+// 桌面 / 移动切换时，切回桌面需要（重新）渲染 ECharts
+watch(isMobile, (mobile) => {
+  if (!mobile) {
+    nextTick(() => initCharts())
+  }
+})
+
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
   todayChart?.dispose()
@@ -732,3 +880,153 @@ onBeforeUnmount(() => {
   allChart?.dispose()
 })
 </script>
+
+<style scoped>
+/* 卡片标题（图标 + 文字） */
+.card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+.card-title .n-icon {
+  position: relative;
+  top: 1px;
+}
+
+/* 教程折叠面板标题（图标 + 文字） */
+.tut-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+/* ============================================================
+   移动端紧凑统计卡片
+   ============================================================ */
+.m-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.m-stat-card {
+  background: #fff;
+  border: 1px solid #efefef;
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+}
+
+.m-stat-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.m-stat-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.m-grade {
+  font-size: 26px;
+  font-weight: 900;
+  line-height: 1;
+  font-family: 'Rajdhani', 'Courier New', monospace;
+}
+
+.m-stat-body {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+/* 正确率圆环（conic-gradient + 中间镂空） */
+.m-ring {
+  width: 86px;
+  height: 86px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.m-ring-inner {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+}
+
+.m-ring-acc {
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.1;
+  font-family: 'Rajdhani', 'Courier New', monospace;
+}
+
+.m-ring-label {
+  font-size: 10px;
+  color: #9ca3af;
+}
+
+.m-nums {
+  flex: 1;
+  display: flex;
+  justify-content: space-around;
+  text-align: center;
+}
+
+.m-num {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.m-num b {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1f2937;
+  font-family: 'Rajdhani', 'Courier New', monospace;
+}
+
+.m-num span {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.m-num-correct b {
+  color: #18a058;
+}
+
+.m-num-wrong b {
+  color: #d03050;
+}
+
+.m-streak {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #f0a020;
+  background: rgba(240, 160, 32, 0.1);
+  border-radius: 8px;
+  padding: 7px;
+}
+</style>

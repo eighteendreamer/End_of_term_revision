@@ -1,7 +1,7 @@
 <template>
   <div class="chat-page">
     <!-- 主容器 -->
-    <div class="chat-container">
+    <div class="chat-container" :class="{ 'is-mobile': isMobile, 'chat-open': !!currentFriend }">
       <!-- 中间列表区 (好友列表) -->
       <section class="list-column">
         <!-- 搜索栏 -->
@@ -55,6 +55,9 @@
         <template v-if="currentFriend">
           <!-- 聊天头部 -->
           <header class="chat-header">
+            <button v-if="isMobile" class="chat-back-btn" @click="currentFriend = null">
+              <i class="fa-solid fa-chevron-left"></i>
+            </button>
             <div class="header-info">
               <h2 class="chat-title">{{ currentFriend.username }}</h2>
               <span class="chat-subtitle">{{ currentFriend.student_id }}</span>
@@ -153,7 +156,7 @@
       <div class="modal-card" @click.stop>
         <div class="modal-header">
           <h3>添加好友</h3>
-          <button class="modal-close" @click="showSearchDialog = false">✕</button>
+          <button class="modal-close" @click="showSearchDialog = false"><i class="fa-solid fa-xmark"></i></button>
         </div>
         <div class="modal-body">
           <div class="search-input-group">
@@ -196,7 +199,7 @@
       <div class="modal-card" @click.stop>
         <div class="modal-header">
           <h3>好友请求</h3>
-          <button class="modal-close" @click="showPendingDialog = false">✕</button>
+          <button class="modal-close" @click="showPendingDialog = false"><i class="fa-solid fa-xmark"></i></button>
         </div>
         <div class="modal-body">
           <div v-if="loadingPending" class="loading">加载中...</div>
@@ -229,9 +232,11 @@ import { chatApi, friendApi, ChatWebSocket } from '@/api'
 import { useUserStore } from '@/stores/user'
 import { getAvatarColor } from '@/utils/avatarUtils'
 import { useMessage } from 'naive-ui'
+import { useBreakpoint } from '@/composables/useBreakpoint'
 
 const userStore = useUserStore()
 const message = useMessage()
+const { isMobile } = useBreakpoint()
 const currentUserId = computed(() => userStore.userId)
 const username = computed(() => userStore.username)
 
@@ -1283,5 +1288,83 @@ onUnmounted(() => {
 .reject-btn:hover {
   background: #e5e7eb;
   color: #1f2937;
+}
+
+/* 返回按钮（仅移动端显示） */
+.chat-back-btn {
+  display: none;
+  border: none;
+  background: none;
+  color: #6b7280;
+  font-size: 18px;
+  padding: 8px 12px 8px 0;
+  cursor: pointer;
+}
+
+/* ============================================================
+   移动端聊天布局：列表与会话切换显示
+   ============================================================ */
+@media (max-width: 768px) {
+  /* 列表占满宽度 */
+  .chat-container.is-mobile .list-column {
+    width: 100%;
+    min-width: 0;
+    border-right: none;
+  }
+
+  /* 默认显示列表、隐藏会话区 */
+  .chat-container.is-mobile .main-content {
+    display: none;
+  }
+
+  /* 选中好友后：隐藏列表，会话区全屏 */
+  .chat-container.is-mobile.chat-open .list-column {
+    display: none;
+  }
+  .chat-container.is-mobile.chat-open .main-content {
+    display: flex;
+    width: 100%;
+  }
+
+  /* 显示返回按钮 */
+  .chat-container.is-mobile .chat-back-btn {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .chat-header {
+    padding: 0 12px;
+    height: 52px;
+    min-height: 52px;
+  }
+
+  .chat-messages {
+    padding: 16px 12px;
+  }
+
+  /* 气泡可更宽一些 */
+  .message-content-left,
+  .message-content-right {
+    max-width: 78%;
+  }
+
+  /* 输入区降低高度 */
+  .input-area {
+    height: 140px;
+    min-height: 140px;
+    max-height: 140px;
+    padding-bottom: var(--safe-bottom, 0px);
+  }
+
+  .input-toolbar {
+    gap: 12px;
+    font-size: 16px;
+  }
+
+  /* 自定义模态框宽度自适应 */
+  .modal-card {
+    width: 92vw;
+    max-width: 92vw;
+  }
 }
 </style>
