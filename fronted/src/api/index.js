@@ -383,6 +383,29 @@ export const materialApi = {
 
 export default request
 
+// ==================== 考试日程 API ====================
+export const examScheduleApi = {
+  // 获取全部考试日程
+  list: (userId) =>
+    request.get('/exam-schedules', { params: { user_id: userId } }),
+
+  // 获取下一门考试（顶栏倒计时专用）
+  upcoming: (userId) =>
+    request.get('/exam-schedules/upcoming', { params: { user_id: userId } }),
+
+  // 创建
+  create: (data) =>
+    request.post('/exam-schedules', data),
+
+  // 更新
+  update: (id, userId, data) =>
+    request.put(`/exam-schedules/${id}`, data, { params: { user_id: userId } }),
+
+  // 删除
+  delete: (id, userId) =>
+    request.delete(`/exam-schedules/${id}`, { params: { user_id: userId } }),
+}
+
 // ==================== 好友系统 API ====================
 export const friendApi = {
   // 搜索用户

@@ -579,3 +579,24 @@ END
 delimiter ;
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+
+-- ============================================================
+-- 考试日程表（顶栏倒计时功能）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `exam_schedules` (
+  `id`             BIGINT        NOT NULL AUTO_INCREMENT COMMENT '考试日程 ID',
+  `user_id`        BIGINT        NOT NULL               COMMENT '所属用户 ID',
+  `subject_name`   VARCHAR(255)  NOT NULL               COMMENT '科目名称',
+  `subject_id`     BIGINT        NULL                   COMMENT '关联科目 ID（可选）',
+  `exam_time`      DATETIME      NOT NULL               COMMENT '考试时间（年月日时分）',
+  `exam_location`  VARCHAR(255)  NULL                   COMMENT '考试地点',
+  `note`           VARCHAR(500)  NULL                   COMMENT '备注',
+  `created_at`     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_exam_schedules_user` (`user_id`),
+  KEY `idx_exam_schedules_time` (`exam_time`),
+  CONSTRAINT `fk_exam_schedules_user`    FOREIGN KEY (`user_id`)    REFERENCES `users`    (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_exam_schedules_subject` FOREIGN KEY (`subject_id`) REFERENCES `subjects` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='考试日程表';

@@ -29,7 +29,9 @@
               </div>
 
               <!-- 桌面端：完整操作 -->
-              <n-space v-if="isLoggedIn && !isMobile">
+              <n-space v-if="isLoggedIn && !isMobile" align="center">
+                <!-- 考试倒计时（登录后显示） -->
+                <ExamCountdown />
                 <n-button @click="showSystemInfo">
                   <template #icon>
                     <n-icon><information-circle-outline /></n-icon>
@@ -48,18 +50,21 @@
               </n-space>
 
               <!-- 移动端：操作收进下拉菜单 -->
-              <n-dropdown
-                v-else-if="isLoggedIn && isMobile"
-                trigger="click"
-                :options="userMenuOptions"
-                @select="handleUserMenuSelect"
-              >
-                <n-button quaternary circle>
-                  <template #icon>
-                    <n-icon size="22"><person-circle-outline /></n-icon>
-                  </template>
-                </n-button>
-              </n-dropdown>
+              <n-space v-else-if="isLoggedIn && isMobile" align="center">
+                <!-- 移动端倒计时（仅图标）-->
+                <ExamCountdown />
+                <n-dropdown
+                  trigger="click"
+                  :options="userMenuOptions"
+                  @select="handleUserMenuSelect"
+                >
+                  <n-button quaternary circle>
+                    <template #icon>
+                      <n-icon size="22"><person-circle-outline /></n-icon>
+                    </template>
+                  </n-button>
+                </n-dropdown>
+              </n-space>
 
               <n-space v-else>
                 <n-button type="primary" @click="showAuthModal = true">
@@ -484,6 +489,7 @@ import { authApi, profileApi } from './api'
 import { useUserStore } from './stores/user'
 import { md5 } from './utils/crypto'
 import { useBreakpoint } from './composables/useBreakpoint'
+import ExamCountdown from './components/ExamCountdown.vue'
 
 const router = useRouter()
 const route = useRoute()

@@ -304,7 +304,7 @@ class MaterialStatus(enum.Enum):
     error = "error"            # 错误
 
 
-class Material(Base):
+class Material(Base):    
     """学习资料表"""
     __tablename__ = "materials"
     
@@ -420,3 +420,22 @@ class UserOnlineStatus(Base):
     is_online = Column(Integer, default=0, comment="是否在线")
     last_seen = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), comment="最后在线时间")
     socket_id = Column(String(100), comment="WebSocket连接ID")
+
+
+# ============================================================
+# 考试倒计时表
+# ============================================================
+
+class ExamSchedule(Base):
+    """考试日程表（用于顶栏倒计时）"""
+    __tablename__ = "exam_schedules"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='考试日程 ID')
+    user_id = Column(BigInteger, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, comment='所属用户 ID')
+    subject_name = Column(String(255), nullable=False, comment='科目名称（自由填写，可与 subjects 表关联）')
+    subject_id = Column(BigInteger, ForeignKey('subjects.id', ondelete='SET NULL'), nullable=True, comment='关联科目 ID（可选）')
+    exam_time = Column(TIMESTAMP, nullable=False, comment='考试时间（年月日时分）')
+    exam_location = Column(String(255), nullable=True, comment='考试地点')
+    note = Column(String(500), nullable=True, comment='备注')
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp(), comment='创建时间')
+    updated_at = Column(TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp(), comment='更新时间')
