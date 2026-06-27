@@ -20,7 +20,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { AlarmOutline, CalendarOutline } from '@vicons/ionicons5'
-import { examScheduleApi } from '@/api'
+import { examScheduleApi, semesterApi } from '@/api'
 import { useUserStore } from '@/stores/user'
 import { storeToRefs } from 'pinia'
 import ExamScheduleDialog from './ExamScheduleDialog.vue'
@@ -32,25 +32,34 @@ const upcoming = ref(null)
 const loaded = ref(false)
 const showDialog = ref(false)
 const nowTs = ref(Date.now())
+const currentSemesterId = ref(null)   // 当前学期 ID，null 表示不筛选
 
 // 每秒刷新一次 nowTs
 let ticker = null
 onMounted(() => {
   ticker = setInterval(() => {
     nowTs.value = Date.now()
-    // 如果当前这门考试已过期，重新拉下一门
     if (upcoming.value && new Date(upcoming.value.exam_time).getTime() <= nowTs.value) {
       fetchUpcoming()
     }
   }, 1000)
-  fetchUpcoming()
+  loadCurrentSemester()
 })
 onBeforeUnmount(() => clearInterval(ticker))
+
+const loadCurrentSemester = async () => {
+  if (!userId.value) return
+  try {
+    const res = await semesterApi.current(userId.value)
+    currentSemesterId.value = res?.data?.id || null
+  } catch (_) {}
+  fetchUpcoming()
+}
 
 const fetchUpcoming = async () => {
   if (!userId.value) return
   try {
-    const res = await examScheduleApi.upcoming(userId.value)
+    const res = await examScheduleApi.upcoming(userId.value, currentSemesterId.value)
     upcoming.value = res?.data || null
   } catch (_) {
     upcoming.value = null
@@ -59,7 +68,9 @@ const fetchUpcoming = async () => {
   }
 }
 
-const refresh = () => fetchUpcoming()
+const refresh = () => {
+  loadCurrentSemester()
+}
 
 // ─── 倒计时显示 ──────────────────────────────────────
 const display = computed(() => {

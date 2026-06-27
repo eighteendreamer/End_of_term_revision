@@ -4,6 +4,14 @@
       <template #extra>
         <n-space>
           <n-select
+            v-model:value="filterSemesterId"
+            :options="[{label:'全部学期',value:null},...semesterOptions]"
+            placeholder="全部学期"
+            style="width:150px"
+            clearable
+            @update:value="() => { selectedSubject = null }"
+          />
+          <n-select
             v-model:value="selectedSubject"
             :options="subjectOptions"
             placeholder="选择科目"
@@ -99,7 +107,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { SearchOutline } from '@vicons/ionicons5'
-import { materialApi, subjectApi } from '@/api'
+import { materialApi, subjectApi, semesterApi } from '@/api'
 import { useUserStore } from '@/stores/user'
 import { storeToRefs } from 'pinia'
 import MaterialCard from '@/components/MaterialCard.vue'
@@ -114,6 +122,8 @@ const { userId } = storeToRefs(userStore)
 const loading = ref(false)
 const materials = ref([])
 const subjects = ref([])
+const semesters = ref([])
+const filterSemesterId = ref(null)
 const selectedSubject = ref(null)
 const searchKeyword = ref('')
 const materialTypeFilter = ref(null)
@@ -129,8 +139,15 @@ const materialTypes = [
   { label: '其他', value: 'other' }
 ]
 
+const semesterOptions = computed(() =>
+  semesters.value.map(s => ({ label: s.is_current ? s.name + ' (当前)' : s.name, value: s.id }))
+)
+
 const subjectOptions = computed(() => {
-  return subjects.value.map(s => ({
+  const filtered = filterSemesterId.value
+    ? subjects.value.filter(s => s.semester_id === filterSemesterId.value)
+    : subjects.value
+  return filtered.map(s => ({
     label: s.name,
     value: s.id
   }))
@@ -150,6 +167,14 @@ const loadSubjects = async () => {
   } catch (error) {
     message.error(error.message || '加载科目列表失败')
   }
+}
+
+const loadSemesters = async () => {
+  if (!userId.value) return
+  try {
+    const res = await semesterApi.list(userId.value)
+    semesters.value = res?.data || []
+  } catch (_) {}
 }
 
 const loadMaterials = async () => {
@@ -209,6 +234,7 @@ const handleQuestionsGenerated = (data) => {
 }
 
 onMounted(() => {
+  loadSemesters()
   loadSubjects()
   loadMaterials()
 })

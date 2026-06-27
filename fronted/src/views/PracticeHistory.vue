@@ -8,6 +8,14 @@
       <n-card>
         <n-space>
           <n-select
+            v-model:value="filterSemesterId"
+            :options="[{label:'全部学期',value:null},...semesterOptions]"
+            placeholder="全部学期"
+            style="width:150px"
+            clearable
+            @update:value="() => { filterSubjectId = null }"
+          />
+          <n-select
             v-model:value="filterSubjectId"
             :options="subjectOptions"
             placeholder="全部科目"
@@ -192,7 +200,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
-import { subjectApi } from '@/api'
+import { subjectApi, semesterApi } from '@/api'
 import { RefreshOutline } from '@vicons/ionicons5'
 import axios from 'axios'
 import { useUserStore } from '@/stores/user'
@@ -209,15 +217,24 @@ const loadingDetails = ref(false)
 const showDetails = ref(false)
 const records = ref([])
 const subjects = ref([])
+const semesters = ref([])
 const details = ref([])
+const filterSemesterId = ref(null)
 const filterSubjectId = ref(null)
 const currentLimit = ref(50)
 const hasMore = ref(true)
 
+const semesterOptions = computed(() =>
+  semesters.value.map(s => ({ label: s.is_current ? s.name + ' (当前)' : s.name, value: s.id }))
+)
+
 const subjectOptions = computed(() => {
+  const filtered = filterSemesterId.value
+    ? subjects.value.filter(s => s.semester_id === filterSemesterId.value)
+    : subjects.value
   return [
     { label: '全部科目', value: null },
-    ...subjects.value.map(s => ({
+    ...filtered.map(s => ({
       label: s.name,
       value: s.id
     }))
@@ -303,6 +320,14 @@ const loadSubjects = async () => {
   }
 }
 
+const loadSemesters = async () => {
+  if (!userId.value) return
+  try {
+    const res = await semesterApi.list(userId.value)
+    semesters.value = res?.data || []
+  } catch (_) {}
+}
+
 const loadHistory = async () => {
   loading.value = true
   currentLimit.value = 50
@@ -350,6 +375,7 @@ const loadMore = async () => {
 }
 
 onMounted(async () => {
+  loadSemesters()
   await loadSubjects()
   await loadHistory()
 })

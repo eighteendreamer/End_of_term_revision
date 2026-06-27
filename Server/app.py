@@ -23,7 +23,8 @@ from routers import (
     friendship_router,    # 新增：好友系统
     chat_router,          # 新增：聊天系统
     profile_router,       # 新增：个人信息管理
-    exam_schedule_router  # 新增：考试倒计时
+    exam_schedule_router, # 新增：考试倒计时
+    semester_router       # 新增：学期管理
 )
 from routers import security_router  # 新增：安全管理
 from websocket_server import handle_websocket, get_online_status
@@ -86,6 +87,7 @@ app.include_router(chat_router.router)          # 新增：聊天系统路由
 app.include_router(profile_router.router)       # 新增：个人信息管理路由
 app.include_router(security_router.router)      # 新增：安全管理路由
 app.include_router(exam_schedule_router.router) # 新增：考试倒计时路由
+app.include_router(semester_router.router)      # 新增：学期管理路由
 
 
 # WebSocket路由（需要 token 鉴权）

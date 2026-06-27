@@ -17,6 +17,13 @@ class SubjectCreate(BaseModel):
     """创建科目请求"""
     name: str
     user_id: int
+    semester_id: Optional[int] = None
+
+
+class SubjectUpdate(BaseModel):
+    """更新科目请求"""
+    name: Optional[str] = None
+    semester_id: Optional[int] = None
 
 
 class SubjectResponse(BaseModel):
@@ -24,13 +31,14 @@ class SubjectResponse(BaseModel):
     id: int
     name: str
     user_id: int
+    semester_id: Optional[int] = None
     created_at: str
-    is_owner: bool = True  # 新增：是否是拥有者
-    is_shared: bool = False  # 新增：是否是共享的
-    owner_username: Optional[str] = None  # 新增：拥有者用户名
-    share_type: Optional[str] = None  # 新增：共享类型
-    has_shared: bool = False  # 新增：是否已共享出去（仅对拥有者有意义）
-    
+    is_owner: bool = True
+    is_shared: bool = False
+    owner_username: Optional[str] = None
+    share_type: Optional[str] = None
+    has_shared: bool = False
+
     class Config:
         from_attributes = True
 
@@ -59,7 +67,8 @@ def create_subject(subject: SubjectCreate, db: Session = Depends(get_default_db)
         school_id=user.school_id,
         college_id=user.college_id,
         major_id=user.major_id,
-        visibility_level='private'  # 默认私有
+        semester_id=subject.semester_id,
+        visibility_level='private'
     )
     
     db.add(db_subject)
@@ -73,6 +82,7 @@ def create_subject(subject: SubjectCreate, db: Session = Depends(get_default_db)
         id=db_subject.id,
         name=db_subject.name,
         user_id=db_subject.user_id,
+        semester_id=db_subject.semester_id,
         created_at=db_subject.created_at.strftime("%Y-%m-%d %H:%M:%S")
     )
 
@@ -111,6 +121,38 @@ def get_subject(subject_id: int, user_id: int, db: Session = Depends(get_default
         id=subject.id,
         name=subject.name,
         user_id=subject.user_id,
+        semester_id=subject.semester_id,
+        created_at=subject.created_at.strftime("%Y-%m-%d %H:%M:%S")
+    )
+
+
+@router.put("/{subject_id}", response_model=SubjectResponse)
+def update_subject(subject_id: int, body: SubjectUpdate, user_id: int, db: Session = Depends(get_default_db)):
+    """更新科目（名称 / 学期）"""
+    from services.share_service import ShareService
+    if not ShareService.can_edit_subject(user_id, subject_id, db):
+        raise HTTPException(status_code=403, detail="无权编辑此科目")
+
+    subject = db.query(Subject).filter(Subject.id == subject_id).first()
+    if not subject:
+        raise HTTPException(status_code=404, detail="科目不存在")
+
+    if body.name is not None:
+        subject.name = body.name.strip()
+    if body.semester_id is not None:
+        subject.semester_id = body.semester_id
+    elif body.semester_id == 0:        # 传 0 表示清空学期
+        subject.semester_id = None
+
+    db.commit()
+    db.refresh(subject)
+    invalidate_cache(f"subjects:user:{user_id}:*")
+
+    return SubjectResponse(
+        id=subject.id,
+        name=subject.name,
+        user_id=subject.user_id,
+        semester_id=subject.semester_id,
         created_at=subject.created_at.strftime("%Y-%m-%d %H:%M:%S")
     )
 

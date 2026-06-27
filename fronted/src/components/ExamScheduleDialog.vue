@@ -6,8 +6,15 @@
     :style="{ width: isMobile ? '94vw' : '600px' }"
     :mask-closable="true"
   >
-    <!-- 顶部：添加按钮 -->
-    <div style="display: flex; justify-content: flex-end; margin-bottom: 12px;">
+    <!-- 顶部：学期筛选 + 添加按钮 -->
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 8px; flex-wrap: wrap;">
+      <n-select
+        v-model:value="filterSemesterId"
+        :options="semesterFilterOptions"
+        placeholder="全部学期"
+        style="min-width: 150px; flex: 1;"
+        clearable
+      />
       <n-button type="primary" size="small" @click="openForm()">
         <template #icon><n-icon><add-outline /></n-icon></template>
         添加考试
@@ -16,9 +23,9 @@
 
     <!-- 列表 -->
     <n-spin :show="loading">
-      <n-empty v-if="!loading && exams.length === 0" description="暂无考试日程，点击右上角添加" />
+      <n-empty v-if="!loading && filteredExams.length === 0" description="暂无考试日程" />
       <n-list v-else bordered>
-        <n-list-item v-for="exam in exams" :key="exam.id">
+        <n-list-item v-for="exam in filteredExams" :key="exam.id">
           <div class="exam-item">
             <div class="exam-main">
               <div class="exam-subject">{{ exam.subject_name }}</div>
@@ -84,6 +91,14 @@
           @update:value="handleSubjectChange"
         />
       </n-form-item>
+      <n-form-item label="所属学期">
+        <n-select
+          v-model:value="form.semester_id"
+          :options="semesterOptions"
+          placeholder="选择学期（可选）"
+          clearable
+        />
+      </n-form-item>
       <n-form-item label="考试时间" path="exam_time">
         <n-date-picker
           v-model:value="form.exam_time_ts"
@@ -119,7 +134,7 @@
 import { ref, computed, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { AddOutline, TimeOutline, LocationOutline, CreateOutline, TrashOutline } from '@vicons/ionicons5'
-import { examScheduleApi, subjectApi } from '@/api'
+import { examScheduleApi, subjectApi, semesterApi } from '@/api'
 import { useUserStore } from '@/stores/user'
 import { storeToRefs } from 'pinia'
 import { useBreakpoint } from '@/composables/useBreakpoint'
@@ -142,6 +157,24 @@ const loading = ref(false)
 const loadingSubjects = ref(false)
 const exams = ref([])
 const mySubjects = ref([])
+const mySemesters = ref([])
+const filterSemesterId = ref(null)
+
+const semesterFilterOptions = computed(() => [
+  { label: '全部学期', value: null },
+  { label: '无学期', value: 0 },
+  ...mySemesters.value.map(s => ({ label: s.name + (s.is_current ? ' (当前)' : ''), value: s.id }))
+])
+
+const semesterOptions = computed(() =>
+  mySemesters.value.map(s => ({ label: s.name + (s.is_current ? ' (当前)' : ''), value: s.id }))
+)
+
+const filteredExams = computed(() => {
+  if (filterSemesterId.value === null) return exams.value
+  if (filterSemesterId.value === 0) return exams.value.filter(e => !e.semester_id)
+  return exams.value.filter(e => e.semester_id === filterSemesterId.value)
+})
 
 // n-select 选项：label 显示名称（共享的标注来源），value 为 subject_id
 const subjectOptions = computed(() =>
@@ -184,8 +217,20 @@ watch(visible, (v) => {
   if (v) {
     loadExams()
     loadSubjects()
+    loadSemesters()
   }
 })
+
+const loadSemesters = async () => {
+  if (!userId.value) return
+  try {
+    const res = await semesterApi.list(userId.value)
+    mySemesters.value = res?.data || []
+    // 默认选中当前学期
+    const cur = mySemesters.value.find(s => s.is_current)
+    if (cur && filterSemesterId.value === null) filterSemesterId.value = cur.id
+  } catch (_) {}
+}
 
 // ─── 表单 ────────────────────────────────────────────
 const showForm = ref(false)
@@ -194,8 +239,9 @@ const editTarget = ref(null)
 const formRef = ref(null)
 
 const defaultForm = () => ({
-  subject_id: null,       // n-select 绑定的 subject.id
-  subject_name: '',       // 由 subject_id 反查到的名称，提交时使用
+  subject_id: null,
+  subject_name: '',
+  semester_id: null,
   exam_time_ts: null,
   exam_location: '',
   note: '',
@@ -219,12 +265,15 @@ const openForm = (exam = null) => {
     form.value = {
       subject_id: exam.subject_id || null,
       subject_name: exam.subject_name,
+      semester_id: exam.semester_id || null,
       exam_time_ts: new Date(exam.exam_time).getTime(),
       exam_location: exam.exam_location || '',
       note: exam.note || '',
     }
   } else {
-    form.value = defaultForm()
+    // 默认带入当前学期
+    const defaultSem = mySemesters.value.find(s => s.is_current)
+    form.value = { ...defaultForm(), semester_id: defaultSem?.id || null }
   }
   showForm.value = true
 }
@@ -243,6 +292,7 @@ const submitForm = async () => {
       user_id: userId.value,
       subject_name: form.value.subject_name,
       subject_id: form.value.subject_id || null,
+      semester_id: form.value.semester_id || null,
       exam_time: examTimeISO,
       exam_location: form.value.exam_location || null,
       note: form.value.note || null,

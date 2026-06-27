@@ -78,6 +78,10 @@ export const subjectApi = {
   // 获取单个科目
   get: (subjectId) => request.get(`/subjects/${subjectId}`),
 
+  // 更新科目（名称/学期）
+  update: (subjectId, userId, data) =>
+    request.put(`/subjects/${subjectId}`, data, { params: { user_id: userId } }),
+
   // 删除科目
   delete: (subjectId, config) => request.delete(`/subjects/${subjectId}`, config)
 }
@@ -383,25 +387,32 @@ export const materialApi = {
 
 export default request
 
+// ==================== 学期管理 API ====================
+export const semesterApi = {
+  list: (userId) =>
+    request.get('/semesters', { params: { user_id: userId } }),
+  current: (userId) =>
+    request.get('/semesters/current', { params: { user_id: userId } }),
+  create: (data) =>
+    request.post('/semesters', data),
+  update: (id, userId, data) =>
+    request.put(`/semesters/${id}`, data, { params: { user_id: userId } }),
+  setCurrent: (id, userId) =>
+    request.patch(`/semesters/${id}/set-current`, null, { params: { user_id: userId } }),
+  delete: (id, userId) =>
+    request.delete(`/semesters/${id}`, { params: { user_id: userId } }),
+}
+
 // ==================== 考试日程 API ====================
 export const examScheduleApi = {
-  // 获取全部考试日程
-  list: (userId) =>
-    request.get('/exam-schedules', { params: { user_id: userId } }),
-
-  // 获取下一门考试（顶栏倒计时专用）
-  upcoming: (userId) =>
-    request.get('/exam-schedules/upcoming', { params: { user_id: userId } }),
-
-  // 创建
+  list: (userId, semesterId) =>
+    request.get('/exam-schedules', { params: { user_id: userId, semester_id: semesterId } }),
+  upcoming: (userId, semesterId) =>
+    request.get('/exam-schedules/upcoming', { params: { user_id: userId, semester_id: semesterId } }),
   create: (data) =>
     request.post('/exam-schedules', data),
-
-  // 更新
   update: (id, userId, data) =>
     request.put(`/exam-schedules/${id}`, data, { params: { user_id: userId } }),
-
-  // 删除
   delete: (id, userId) =>
     request.delete(`/exam-schedules/${id}`, { params: { user_id: userId } }),
 }

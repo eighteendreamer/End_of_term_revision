@@ -8,6 +8,14 @@
       <n-card>
         <n-space class="qb-filters">
           <n-select
+            v-model:value="filterSemesterId"
+            :options="[{label:'全部学期',value:null},...semesterOptions]"
+            placeholder="全部学期"
+            style="width:150px"
+            clearable
+            @update:value="() => { filterSubjectId = null }"
+          />
+          <n-select
             v-model:value="filterSubjectId"
             :options="subjectOptions"
             placeholder="选择科目"
@@ -182,7 +190,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
-import { questionApi, subjectApi } from '@/api'
+import { questionApi, subjectApi, semesterApi } from '@/api'
 import {
   SearchOutline,
   RefreshOutline,
@@ -201,6 +209,8 @@ const { userId } = storeToRefs(userStore)
 const loading = ref(false)
 const questions = ref([])
 const subjects = ref([])
+const semesters = ref([])
+const filterSemesterId = ref(null)
 const filterSubjectId = ref(null)
 const filterType = ref(null)
 const searchKeyword = ref('')
@@ -218,9 +228,17 @@ const typeOptions = [
   { label: '大型题', value: 'major' }
 ]
 
-// 科目选项
+// 学期选项
+const semesterOptions = computed(() =>
+  semesters.value.map(s => ({ label: s.is_current ? s.name + ' (当前)' : s.name, value: s.id }))
+)
+
+// 科目选项（按学期过滤）
 const subjectOptions = computed(() => {
-  return subjects.value.map(s => ({
+  const filtered = filterSemesterId.value
+    ? subjects.value.filter(s => s.semester_id === filterSemesterId.value)
+    : subjects.value
+  return filtered.map(s => ({
     label: s.name,
     value: s.id
   }))
@@ -306,6 +324,14 @@ const loadSubjects = async () => {
   } catch (error) {
     message.error('加载科目列表失败')
   }
+}
+
+const loadSemesters = async () => {
+  if (!userId.value) return
+  try {
+    const res = await semesterApi.list(userId.value)
+    semesters.value = res?.data || []
+  } catch (_) {}
 }
 
 // 加载题目统计
@@ -426,6 +452,7 @@ const handlePageSizeChange = (size) => {
 }
 
 onMounted(() => {
+  loadSemesters()
   loadSubjects().then(() => {
     loadQuestions()
   })

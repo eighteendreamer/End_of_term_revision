@@ -1025,6 +1025,10 @@ const menuOptions = [
       {
         label: 'AI 模型配置',
         key: '/model-config'
+      },
+      {
+        label: '学期管理',
+        key: '/semester'
       }
     ]
   }

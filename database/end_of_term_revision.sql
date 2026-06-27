@@ -600,3 +600,31 @@ CREATE TABLE IF NOT EXISTS `exam_schedules` (
   CONSTRAINT `fk_exam_schedules_user`    FOREIGN KEY (`user_id`)    REFERENCES `users`    (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_exam_schedules_subject` FOREIGN KEY (`subject_id`) REFERENCES `subjects` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='考试日程表';
+
+
+-- ============================================================
+-- 学期管理表
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `semesters` (
+  `id`          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '学期 ID',
+  `user_id`     BIGINT       NOT NULL               COMMENT '所属用户 ID',
+  `name`        VARCHAR(100) NOT NULL               COMMENT '学期名称，如 2025-2026第一学期',
+  `start_date`  TIMESTAMP    NULL                   COMMENT '开始日期',
+  `end_date`    TIMESTAMP    NULL                   COMMENT '结束日期',
+  `is_current`  TINYINT(1)   NOT NULL DEFAULT 0     COMMENT '是否当前学期',
+  `created_at`  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_semesters_user` (`user_id`),
+  CONSTRAINT `fk_semesters_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='学期表';
+
+-- subjects 加 semester_id 字段
+ALTER TABLE `subjects`
+  ADD COLUMN `semester_id` BIGINT NULL COMMENT '所属学期 ID',
+  ADD CONSTRAINT `fk_subjects_semester` FOREIGN KEY (`semester_id`) REFERENCES `semesters` (`id`) ON DELETE SET NULL;
+
+-- exam_schedules 加 semester_id 字段
+ALTER TABLE `exam_schedules`
+  ADD COLUMN `semester_id` BIGINT NULL COMMENT '关联学期 ID',
+  ADD CONSTRAINT `fk_exam_schedules_semester` FOREIGN KEY (`semester_id`) REFERENCES `semesters` (`id`) ON DELETE SET NULL;

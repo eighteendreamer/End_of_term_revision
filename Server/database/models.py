@@ -156,6 +156,7 @@ class Subject(Base):
     college_id = Column(BigInteger, ForeignKey('colleges.id', ondelete='SET NULL'), nullable=True, comment='所属学院ID')
     major_id = Column(BigInteger, ForeignKey('majors.id', ondelete='SET NULL'), nullable=True, comment='所属专业ID')
     name = Column(String(255), nullable=False, comment='科目名称')
+    semester_id = Column(BigInteger, ForeignKey('semesters.id', ondelete='SET NULL'), nullable=True, comment='所属学期 ID（可选）')
     visibility_level = Column(Enum(VisibilityLevel), nullable=False, default=VisibilityLevel.private, comment='可见级别')
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp(), comment='创建时间')
 
@@ -423,17 +424,35 @@ class UserOnlineStatus(Base):
 
 
 # ============================================================
+# 学期管理表
+# ============================================================
+
+class Semester(Base):
+    """学期表（按用户隔离）"""
+    __tablename__ = "semesters"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='学期 ID')
+    user_id = Column(BigInteger, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, comment='所属用户 ID')
+    name = Column(String(100), nullable=False, comment='学期名称，如 2025-2026第一学期')
+    start_date = Column(TIMESTAMP, nullable=True, comment='开始日期')
+    end_date = Column(TIMESTAMP, nullable=True, comment='结束日期')
+    is_current = Column(Integer, default=0, comment='是否当前学期（每用户最多一个）')
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp(), comment='创建时间')
+    updated_at = Column(TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp(), comment='更新时间')
+
+
+# ============================================================
 # 考试倒计时表
 # ============================================================
 
 class ExamSchedule(Base):
-    """考试日程表（用于顶栏倒计时）"""
     __tablename__ = "exam_schedules"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='考试日程 ID')
     user_id = Column(BigInteger, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, comment='所属用户 ID')
     subject_name = Column(String(255), nullable=False, comment='科目名称（自由填写，可与 subjects 表关联）')
     subject_id = Column(BigInteger, ForeignKey('subjects.id', ondelete='SET NULL'), nullable=True, comment='关联科目 ID（可选）')
+    semester_id = Column(BigInteger, ForeignKey('semesters.id', ondelete='SET NULL'), nullable=True, comment='关联学期 ID（可选）')
     exam_time = Column(TIMESTAMP, nullable=False, comment='考试时间（年月日时分）')
     exam_location = Column(String(255), nullable=True, comment='考试地点')
     note = Column(String(500), nullable=True, comment='备注')

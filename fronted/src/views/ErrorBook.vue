@@ -18,6 +18,14 @@
         <!-- 筛选 -->
         <n-space>
           <n-select
+            v-model:value="filterSemesterId"
+            :options="[{label:'全部学期',value:null},...semesterOptions]"
+            placeholder="全部学期"
+            style="width:150px"
+            clearable
+            @update:value="() => { filterSubject = null }"
+          />
+          <n-select
             v-model:value="filterSubject"
             :options="subjectOptions"
             placeholder="筛选科目"
@@ -139,7 +147,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
-import { subjectApi, errorApi } from '@/api'
+import { subjectApi, errorApi, semesterApi } from '@/api'
 import { CreateOutline } from '@vicons/ionicons5'
 import { useUserStore } from '@/stores/user'
 import { storeToRefs } from 'pinia'
@@ -152,16 +160,25 @@ const userStore = useUserStore()
 const { userId } = storeToRefs(userStore)
 const loading = ref(false)
 const subjects = ref([])
+const semesters = ref([])
 const errors = ref([])
 const errorCount = ref(0)
+const filterSemesterId = ref(null)
 const filterSubject = ref(null)
 
 // 分页相关
 const currentPage = ref(1)
 const pageSize = ref(12)
 
+const semesterOptions = computed(() =>
+  semesters.value.map(s => ({ label: s.is_current ? s.name + ' (当前)' : s.name, value: s.id }))
+)
+
 const subjectOptions = computed(() => {
-  return subjects.value.map(s => ({
+  const filtered = filterSemesterId.value
+    ? subjects.value.filter(s => s.semester_id === filterSemesterId.value)
+    : subjects.value
+  return filtered.map(s => ({
     label: s.name,
     value: s.id
   }))
@@ -201,6 +218,14 @@ const loadSubjects = async () => {
   } catch (error) {
     message.error(error.message || '加载科目列表失败')
   }
+}
+
+const loadSemesters = async () => {
+  if (!userId.value) return
+  try {
+    const res = await semesterApi.list(userId.value)
+    semesters.value = res?.data || []
+  } catch (_) {}
 }
 
 const loadErrors = async () => {
@@ -250,6 +275,7 @@ const removeError = (errorId) => {
 }
 
 onMounted(() => {
+  loadSemesters()
   loadSubjects()
   loadErrors()
 })

@@ -2,11 +2,18 @@
   <div>
     <n-page-header title="科目管理" subtitle="管理你的学习科目">
       <template #extra>
-        <n-space>
+        <n-space :wrap="true" align="center">
+          <!-- 学期筛选 -->
+          <n-select
+            v-model:value="filterSemesterId"
+            :options="semesterFilterOptions"
+            placeholder="全部学期"
+            style="width: 180px"
+            clearable
+            @update:value="filterSubjects"
+          />
           <n-button type="primary" @click="showModal = true">
-            <template #icon>
-              <n-icon><add-outline /></n-icon>
-            </template>
+            <template #icon><n-icon><add-outline /></n-icon></template>
             添加科目
           </n-button>
         </n-space>
@@ -15,14 +22,14 @@
 
     <n-spin :show="loading" style="margin-top: 24px;">
       <n-empty
-        v-if="subjects.length === 0"
+        v-if="filteredSubjects.length === 0"
         description="还没有科目，快来添加一个吧！"
         style="margin-top: 60px;"
       />
       
       <div v-else class="subjects-grid">
         <n-card
-          v-for="subject in subjects"
+          v-for="subject in filteredSubjects"
           :key="subject.id"
           hoverable
           class="subject-card"
@@ -48,6 +55,10 @@
                 <n-tag v-if="subject.is_owner && subject.has_shared" type="warning" size="small">
                   <template #icon><n-icon><sparkles-outline /></n-icon></template>
                   已共享
+                </n-tag>
+                <!-- 学期标识 -->
+                <n-tag v-if="subject.semester_id && semesterMap[subject.semester_id]" type="info" size="small">
+                  {{ semesterMap[subject.semester_id] }}
                 </n-tag>
               </n-space>
               
@@ -88,6 +99,14 @@
             v-model:value="formData.name"
             placeholder="请输入科目名称，如：数学、英语"
             @keyup.enter="handleSubmit"
+          />
+        </n-form-item>
+        <n-form-item label="所属学期">
+          <n-select
+            v-model:value="formData.semester_id"
+            :options="semesterOptions"
+            placeholder="选择学期（可选）"
+            clearable
           />
         </n-form-item>
       </n-form>
@@ -168,13 +187,39 @@
       </n-space>
     </n-modal>
   </div>
+
+  <!-- 设置学期弹窗 -->
+  <n-modal
+    v-model:show="showEditSemesterModal"
+    preset="card"
+    title="设置学期"
+    style="width: min(94vw, 380px);"
+    :mask-closable="false"
+  >
+    <n-space vertical>
+      <n-text>科目：<strong>{{ editingSemesterSubject?.name }}</strong></n-text>
+      <n-select
+        v-model:value="editingSemesterId"
+        :options="[{label:'不设置学期',value:null},...semesterOptions]"
+        placeholder="选择学期"
+        clearable
+      />
+    </n-space>
+    <template #footer>
+      <n-space justify="end">
+        <n-button @click="showEditSemesterModal = false">取消</n-button>
+        <n-button type="primary" :loading="savingSemester" @click="saveSubjectSemester">保存</n-button>
+      </n-space>
+    </template>
+  </n-modal>
 </template>
 
 <script setup>
-import { ref, onMounted, h } from 'vue'
+import { ref, onMounted, h, computed } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
-import { subjectApi, shareApi } from '@/api'
-import { AddOutline, EllipsisHorizontalOutline, TrashOutline, ShareSocialOutline, PeopleOutline, EarthOutline, BookOutline, SparklesOutline, PaperPlaneOutline, TimeOutline } from '@vicons/ionicons5'
+import { subjectApi, shareApi, semesterApi } from '@/api'
+import { AddOutline, EllipsisHorizontalOutline, TrashOutline, ShareSocialOutline,
+  PeopleOutline, EarthOutline, BookOutline, SparklesOutline, PaperPlaneOutline, TimeOutline, CalendarOutline } from '@vicons/ionicons5'
 import { NIcon } from 'naive-ui'
 import { useUserStore } from '@/stores/user'
 import { storeToRefs } from 'pinia'
@@ -188,6 +233,27 @@ const showShareModal = ref(false)
 const userStore = useUserStore()
 const { userId } = storeToRefs(userStore)
 const subjects = ref([])
+const semesters = ref([])
+const filterSemesterId = ref(null)
+
+const semesterFilterOptions = computed(() => [
+  { label: '无学期', value: 0 },
+  ...semesters.value.map(s => ({ label: s.name, value: s.id }))
+])
+const semesterOptions = computed(() =>
+  semesters.value.map(s => ({ label: s.name, value: s.id }))
+)
+const semesterMap = computed(() => {
+  const m = {}
+  semesters.value.forEach(s => { m[s.id] = s.name })
+  return m
+})
+const filteredSubjects = computed(() => {
+  if (filterSemesterId.value === null) return subjects.value
+  if (filterSemesterId.value === 0) return subjects.value.filter(s => !s.semester_id)
+  return subjects.value.filter(s => s.semester_id === filterSemesterId.value)
+})
+const filterSubjects = () => {}
 const currentSubject = ref(null)
 const shareList = ref([])
 const loadingShares = ref(false)
@@ -197,7 +263,8 @@ const userOptions = ref([])
 
 const formRef = ref(null)
 const formData = ref({
-  name: ''
+  name: '',
+  semester_id: null
 })
 
 const shareForm = ref({
@@ -214,9 +281,13 @@ const rules = {
 // 获取操作菜单
 const getActions = (subject) => {
   const actions = []
-  
-  // 只有拥有者才能看到共享和删除按钮
+
   if (subject.is_owner) {
+    actions.push({
+      label: '设置学期',
+      key: 'edit-semester',
+      icon: () => h(NIcon, null, { default: () => h(CalendarOutline) })
+    })
     actions.push({
       label: '共享设置',
       key: 'share',
@@ -228,7 +299,7 @@ const getActions = (subject) => {
       icon: () => h(NIcon, null, { default: () => h(TrashOutline) })
     })
   }
-  
+
   return actions
 }
 
@@ -238,6 +309,8 @@ const handleAction = (key, subject) => {
     handleDelete(subject)
   } else if (key === 'share') {
     handleShowShareModal(subject)
+  } else if (key === 'edit-semester') {
+    openEditSemester(subject)
   }
 }
 
@@ -363,7 +436,8 @@ const handleSubmit = async () => {
     
     await subjectApi.create({
       name: formData.value.name,
-      user_id: userId.value
+      user_id: userId.value,
+      semester_id: formData.value.semester_id || null
     })
     
     message.success('科目添加成功')
@@ -400,7 +474,45 @@ const handleDelete = (subject) => {
 
 onMounted(() => {
   loadSubjects()
+  loadSemesters()
 })
+
+const loadSemesters = async () => {
+  if (!userId.value) return
+  try {
+    const res = await semesterApi.list(userId.value)
+    semesters.value = res?.data || []
+  } catch (_) {}
+}
+
+// ─── 设置学期弹窗 ─────────────────────────────────────
+const showEditSemesterModal = ref(false)
+const editingSemesterSubject = ref(null)
+const editingSemesterId = ref(null)
+const savingSemester = ref(false)
+
+const openEditSemester = (subject) => {
+  editingSemesterSubject.value = subject
+  editingSemesterId.value = subject.semester_id || null
+  showEditSemesterModal.value = true
+}
+
+const saveSubjectSemester = async () => {
+  if (!editingSemesterSubject.value) return
+  savingSemester.value = true
+  try {
+    await subjectApi.update(editingSemesterSubject.value.id, userId.value, {
+      semester_id: editingSemesterId.value || 0   // 0 表示清空
+    })
+    message.success('学期设置已保存')
+    showEditSemesterModal.value = false
+    loadSubjects()
+  } catch (e) {
+    message.error(e.message || '保存失败')
+  } finally {
+    savingSemester.value = false
+  }
+}
 </script>
 
 
