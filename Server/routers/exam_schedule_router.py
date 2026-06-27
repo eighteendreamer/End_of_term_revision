@@ -4,6 +4,7 @@
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import or_, and_
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
@@ -36,7 +37,7 @@ class ExamScheduleUpdate(BaseModel):
 
 # ==================== 工具 ====================
 
-def _to_dict(exam: ExamSchedule) -> dict:
+def _to_dict(exam: ExamSchedule, is_owner: bool = True, owner_username: str = None) -> dict:
     return {
         "id": exam.id,
         "user_id": exam.user_id,
@@ -46,35 +47,108 @@ def _to_dict(exam: ExamSchedule) -> dict:
         "exam_time": exam.exam_time.isoformat() if exam.exam_time else None,
         "exam_location": exam.exam_location,
         "note": exam.note,
+        "is_owner": is_owner,                       # 是否本人创建（非本人则为共享来的）
+        "owner_username": owner_username,            # 创建人用户名（共享时显示来源）
         "created_at": exam.created_at.isoformat() if exam.created_at else None,
         "updated_at": exam.updated_at.isoformat() if exam.updated_at else None,
     }
+
+
+def _build_accessible_query(user_id: int, db: Session):
+    """
+    构建可访问考试的查询条件：
+      1. 本人创建的考试（user_id == user_id）
+      2. 或者考试关联的科目在用户可访问范围内（共享/公共科目的考试）
+    """
+    from services.share_service import ShareService
+    from database.models import User
+    accessible_ids = ShareService.get_accessible_subject_ids(user_id, db)
+
+    return accessible_ids
 
 
 # ==================== 接口 ====================
 
 @router.get("")
 def list_exams(user_id: int, semester_id: Optional[int] = None, db: Session = Depends(get_default_db)):
-    """获取该用户的所有考试日程（按考试时间升序），可按学期筛选"""
-    q = db.query(ExamSchedule).filter(ExamSchedule.user_id == user_id)
+    """
+    获取该用户的考试日程（按考试时间升序），可按学期筛选。
+    包含：① 本人创建的考试；② 可访问共享科目的考试（由科目原作者创建）
+    """
+    from database.models import User
+    accessible_ids = _build_accessible_query(user_id, db)
+
+    # 查询：自己的考试 OR 共享科目里其他人创建的考试
+    q = db.query(ExamSchedule).filter(
+        or_(
+            ExamSchedule.user_id == user_id,
+            and_(
+                ExamSchedule.subject_id.isnot(None),
+                ExamSchedule.subject_id.in_(accessible_ids) if accessible_ids else False,
+                ExamSchedule.user_id != user_id
+            )
+        )
+    )
     if semester_id is not None:
         q = q.filter(ExamSchedule.semester_id == semester_id)
+
     exams = q.order_by(ExamSchedule.exam_time.asc()).all()
-    return {"code": 200, "message": "获取成功", "data": [_to_dict(e) for e in exams]}
+
+    # 批量取创建人用户名
+    owner_ids = {e.user_id for e in exams if e.user_id != user_id}
+    owner_map = {}
+    if owner_ids:
+        users = db.query(User).filter(User.id.in_(owner_ids)).all()
+        owner_map = {u.id: u.username for u in users}
+
+    return {
+        "code": 200,
+        "message": "获取成功",
+        "data": [
+            _to_dict(e, is_owner=(e.user_id == user_id),
+                     owner_username=owner_map.get(e.user_id))
+            for e in exams
+        ]
+    }
 
 
 @router.get("/upcoming")
 def get_upcoming_exam(user_id: int, semester_id: Optional[int] = None, db: Session = Depends(get_default_db)):
-    """下一门考试（顶栏倒计时专用），可按学期筛选"""
+    """
+    下一门考试（顶栏倒计时专用）。
+    同样包含共享科目的考试，优先返回时间最近的一条。
+    """
+    from database.models import User
     now = datetime.now()
+    accessible_ids = _build_accessible_query(user_id, db)
+
     q = db.query(ExamSchedule).filter(
-        ExamSchedule.user_id == user_id,
-        ExamSchedule.exam_time > now
+        ExamSchedule.exam_time > now,
+        or_(
+            ExamSchedule.user_id == user_id,
+            and_(
+                ExamSchedule.subject_id.isnot(None),
+                ExamSchedule.subject_id.in_(accessible_ids) if accessible_ids else False,
+                ExamSchedule.user_id != user_id
+            )
+        )
     )
     if semester_id is not None:
         q = q.filter(ExamSchedule.semester_id == semester_id)
+
     exam = q.order_by(ExamSchedule.exam_time.asc()).first()
-    return {"code": 200, "message": "获取成功", "data": _to_dict(exam) if exam else None}
+
+    owner_username = None
+    if exam and exam.user_id != user_id:
+        owner = db.query(User).filter(User.id == exam.user_id).first()
+        owner_username = owner.username if owner else None
+
+    return {
+        "code": 200,
+        "message": "获取成功",
+        "data": _to_dict(exam, is_owner=(exam.user_id == user_id if exam else True),
+                         owner_username=owner_username) if exam else None
+    }
 
 
 @router.post("")

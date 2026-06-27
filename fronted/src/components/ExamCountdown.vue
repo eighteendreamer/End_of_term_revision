@@ -97,10 +97,12 @@ const urgentClass = computed(() => {
 const tooltipText = computed(() => {
   if (!upcoming.value) return '点击管理考试日程'
   const loc = upcoming.value.exam_location ? ` · ${upcoming.value.exam_location}` : ''
+  const from = (!upcoming.value.is_owner && upcoming.value.owner_username)
+    ? ` (来自 ${upcoming.value.owner_username})` : ''
   const t = new Date(upcoming.value.exam_time).toLocaleString('zh-CN', {
     month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
   })
-  return `${upcoming.value.subject_name}  ${t}${loc}\n点击管理考试日程`
+  return `${upcoming.value.subject_name}${from}  ${t}${loc}\n点击管理考试日程`
 })
 </script>
 

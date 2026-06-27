@@ -28,7 +28,12 @@
         <n-list-item v-for="exam in filteredExams" :key="exam.id">
           <div class="exam-item">
             <div class="exam-main">
-              <div class="exam-subject">{{ exam.subject_name }}</div>
+              <div class="exam-subject">
+                {{ exam.subject_name }}
+                <n-tag v-if="!exam.is_owner" size="tiny" type="success" style="margin-left: 6px;">
+                  共享 · {{ exam.owner_username }}
+                </n-tag>
+              </div>
               <div class="exam-meta">
                 <n-icon :size="13"><time-outline /></n-icon>
                 {{ formatTime(exam.exam_time) }}
@@ -39,20 +44,11 @@
                 </template>
               </div>
               <div v-if="exam.note" class="exam-note">{{ exam.note }}</div>
-              <n-tag
-                v-if="isPast(exam.exam_time)"
-                size="tiny"
-                type="default"
-                style="margin-top: 4px;"
-              >已过期</n-tag>
-              <n-tag
-                v-else
-                size="tiny"
-                type="warning"
-                style="margin-top: 4px;"
-              >{{ countdownText(exam.exam_time) }}</n-tag>
+              <n-tag v-if="isPast(exam.exam_time)" size="tiny" type="default" style="margin-top: 4px;">已过期</n-tag>
+              <n-tag v-else size="tiny" type="warning" style="margin-top: 4px;">{{ countdownText(exam.exam_time) }}</n-tag>
             </div>
-            <n-space>
+            <!-- 只有本人创建的考试才显示编辑/删除 -->
+            <n-space v-if="exam.is_owner !== false">
               <n-button size="small" quaternary @click="openForm(exam)">
                 <template #icon><n-icon><create-outline /></n-icon></template>
               </n-button>
