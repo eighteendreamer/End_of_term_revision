@@ -22,7 +22,7 @@
             class="qb-filter-item"
             style="width: 200px"
             clearable
-            @update:value="loadQuestions"
+            @update:value="handleFilterChange"
           />
           <n-select
             v-model:value="filterType"
@@ -31,7 +31,7 @@
             class="qb-filter-item"
             style="width: 150px"
             clearable
-            @update:value="loadQuestions"
+            @update:value="handleFilterChange"
           />
           <n-input
             v-model:value="searchKeyword"
@@ -255,7 +255,19 @@ const typeCount = ref({
 })
 
 // 分页（后端分页）
-const pageCount = computed(() => Math.ceil(totalCount.value / pageSize.value))
+// filteredTotal：有题型筛选时用对应类型的题数，否则用总题数
+const filteredTotal = computed(() => {
+  if (!filterType.value) return totalCount.value
+  const map = {
+    single:   typeCount.value.single   || 0,
+    multiple: typeCount.value.multiple || 0,
+    judge:    typeCount.value.judge    || 0,
+    fill:     typeCount.value.fill     || 0,
+    major:    typeCount.value.major    || 0,
+  }
+  return map[filterType.value] ?? 0
+})
+const pageCount = computed(() => Math.ceil(filteredTotal.value / pageSize.value) || 1)
 
 // 获取题型标签类型
 const getTypeTagType = (type) => {
@@ -365,6 +377,12 @@ const loadStatistics = async () => {
   }
 }
 
+// 筛选条件变化时调用：先重置到第 1 页再加载
+const handleFilterChange = () => {
+  currentPage.value = 1
+  loadQuestions()
+}
+
 // 加载题目列表（使用后端分页）
 const loadQuestions = async () => {
   loading.value = true
@@ -411,6 +429,7 @@ const handleReset = () => {
   filterSubjectId.value = null
   filterType.value = null
   searchKeyword.value = ''
+  currentPage.value = 1
   loadQuestions()
 }
 
