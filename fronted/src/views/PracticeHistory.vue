@@ -141,7 +141,7 @@
         
         <n-list v-else bordered>
           <n-list-item v-for="(detail, idx) in details" :key="idx">
-            <n-space vertical size="large" style="width: 100%;">
+            <n-space vertical size="large" style="width: 100%; min-width: 0; overflow: hidden;">
               <!-- 题目 -->
               <n-space align="center">
                 <n-tag :type="detail.is_correct ? 'success' : 'error'" size="small">
@@ -166,16 +166,16 @@
               </n-space>
 
               <!-- 答案对比 -->
-              <n-space>
-                <n-text depth="3">你的答案：</n-text>
-                <n-tag :type="detail.is_correct ? 'success' : 'error'" size="small">
+              <div class="answer-compare">
+                <span class="answer-label">你的答案：</span>
+                <span class="answer-tag" :class="detail.is_correct ? 'answer-tag--correct' : 'answer-tag--wrong'">
                   <FormulaRenderer :content="detail.user_answer || '未作答'" />
-                </n-tag>
-                <n-text depth="3">正确答案：</n-text>
-                <n-tag type="success" size="small">
+                </span>
+                <span class="answer-label">正确答案：</span>
+                <span class="answer-tag answer-tag--correct">
                   <FormulaRenderer :content="detail.correct_answer" />
-                </n-tag>
-              </n-space>
+                </span>
+              </div>
 
               <!-- 解析 -->
               <n-alert type="info" title="解析">
@@ -358,6 +358,41 @@ onMounted(async () => {
 <style scoped>
 :deep(.n-list-item) {
   padding: 20px;
+}
+
+/* 答案对比：wrap 布局，长答案文本自动换行不撑宽容器 */
+.answer-compare {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+  width: 100%;
+  min-width: 0;
+}
+.answer-label {
+  color: #999;
+  font-size: 13px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.answer-tag {
+  display: inline;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  word-break: break-all;
+  overflow-wrap: break-word;
+  max-width: 100%;
+}
+.answer-tag--correct {
+  color: #18a058;
+  background: rgba(24, 160, 88, 0.1);
+  border: 1px solid rgba(24, 160, 88, 0.3);
+}
+.answer-tag--wrong {
+  color: #d03050;
+  background: rgba(208, 48, 80, 0.1);
+  border: 1px solid rgba(208, 48, 80, 0.3);
 }
 
 :deep(.n-thing-header) {
