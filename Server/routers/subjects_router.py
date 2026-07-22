@@ -77,6 +77,7 @@ def create_subject(subject: SubjectCreate, db: Session = Depends(get_default_db)
     
     # 清除用户科目列表缓存
     invalidate_cache(f"subjects:user:{subject.user_id}:*")
+    invalidate_cache(f"access:subjects:user:{subject.user_id}")
     
     return SubjectResponse(
         id=db_subject.id,
@@ -185,6 +186,7 @@ def delete_subject(subject_id: int, user_id: int, db: Session = Depends(get_defa
     # 清除所有相关缓存
     invalidate_cache(f"subjects:user:{user_id}:*")
     invalidate_cache(f"subjects:user:*")  # 清除所有用户的科目列表缓存（如果有共享）
+    invalidate_cache("access:subjects:user:*")  # 清除可访问科目ID集合缓存
     invalidate_cache(f"subject:{subject_id}:*")
     invalidate_cache(f"questions:subject:{subject_id}:*")
     invalidate_cache(f"practice:user:{user_id}:*")  # 清除练习相关缓存

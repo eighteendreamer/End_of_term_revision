@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/auth", tags=["用户认证"])
 
 # JWT配置（使用集中管理的密钥）
 from utils.security import JWT_SECRET_KEY as SECRET_KEY, JWT_ALGORITHM as ALGORITHM, JWT_EXPIRE_MINUTES as ACCESS_TOKEN_EXPIRE_MINUTES
-from utils.security import create_token, decode_token as _decode_token, validate_safe_input
+from utils.security import create_token, decode_token as _decode_token, validate_safe_input, get_current_user_id
 
 # 请求/响应模型
 class RegisterRequest(BaseModel):
@@ -408,10 +408,18 @@ def login(request_data: LoginRequest, request: Request, db: Session = Depends(ge
     
     pass  # debug removed
     
-    # 特殊处理：内测用户使用用户名登录且信息未完善
+    # 始终校验密码（安全修复：内测用户用户名登录此前跳过密码校验，导致认证绕过）
+    password_valid = verify_md5_password(request_data.password_md5, user.password_hash)
+    if not password_valid:
+        # 记录失败的登录尝试
+        SecurityMiddleware.record_failed_login(client_ip, login_identifier)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="学号/用户名或密码错误"
+        )
+    
+    # 密码校验通过后：内测用户（用户名登录且信息未完善）返回完善信息提示
     if is_username_login and user.profile_completed == 0:
-        pass  # debug removed
-        
         # 生成临时token（用于完善信息）
         token = create_access_token({
             "user_id": user.id,
@@ -426,21 +434,6 @@ def login(request_data: LoginRequest, request: Request, db: Session = Depends(ge
             "profile_completed": 0,
             "message": "内测用户首次登录，请完善账号信息"
         }
-    
-    # 正常登录流程：验证密码
-    pass  # debug removed
-    pass  # debug removed
-    
-    password_valid = verify_md5_password(request_data.password_md5, user.password_hash)
-    pass  # debug removed
-    
-    if not password_valid:
-        # 记录失败的登录尝试
-        SecurityMiddleware.record_failed_login(client_ip, login_identifier)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="学号/用户名或密码错误"
-        )
     
     # 检查信息是否完善
     is_completed = check_profile_completed(user)
@@ -467,20 +460,16 @@ def login(request_data: LoginRequest, request: Request, db: Session = Depends(ge
 
 
 @router.get("/me", response_model=UserResponse, summary="获取当前用户信息")
-def get_current_user(token: str, db: Session = Depends(get_default_db)):
+def get_current_user(
+    current_user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_default_db)
+):
     """
     获取当前登录用户信息
-    - 需要在请求头中提供token
+    - 需要在 Authorization 头中提供 Bearer token
     """
-    # 解码token
-    payload = decode_token(token)
-    user_id = payload.get("user_id")
-    
-    if not user_id:
-        raise HTTPException(status_code=401, detail="无效的token")
-    
     # 查询用户
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.id == current_user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
     
@@ -490,25 +479,18 @@ def get_current_user(token: str, db: Session = Depends(get_default_db)):
 @router.put("/profile", response_model=UserResponse, summary="完善/更新用户信息")
 def update_profile(
     request: UpdateProfileRequest,
-    token: str,
+    current_user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_default_db)
 ):
     """
     完善或更新用户信息
-    - 需要在请求头中提供token
+    - 需要在 Authorization 头中提供 Bearer token
     - 可以更新：学号、用户名、密码、学校、二级学院、专业、班级、性别
     - 自动检查信息是否完善并更新状态
     - 内测用户首次完善时必须填写学号和设置新密码
     """
-    # 解码token
-    payload = decode_token(token)
-    user_id = payload.get("user_id")
-    
-    if not user_id:
-        raise HTTPException(status_code=401, detail="无效的token")
-    
     # 查询用户
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.id == current_user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
     
@@ -517,7 +499,7 @@ def update_profile(
         # 检查学号是否已被其他用户使用
         existing_user = db.query(User).filter(
             User.student_id == request.student_id,
-            User.id != user_id
+            User.id != current_user_id
         ).first()
         if existing_user:
             raise HTTPException(
@@ -574,20 +556,16 @@ def update_profile(
 
 
 @router.get("/check-profile", summary="检查账号信息是否完善")
-def check_profile(token: str, db: Session = Depends(get_default_db)):
+def check_profile(
+    current_user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_default_db)
+):
     """
     检查当前用户账号信息是否完善
     - 返回完善状态和缺失的必填项
     """
-    # 解码token
-    payload = decode_token(token)
-    user_id = payload.get("user_id")
-    
-    if not user_id:
-        raise HTTPException(status_code=401, detail="无效的token")
-    
     # 查询用户
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.id == current_user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
     

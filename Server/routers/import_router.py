@@ -110,7 +110,7 @@ async def preview_from_file(
                 os.unlink(tmp_file_path)
             except:
                 pass
-        raise HTTPException(status_code=500, detail=f"解析失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="解析失败，请检查文件内容后重试")
 
 
 @router.post("/preview/image")
@@ -239,7 +239,7 @@ def preview_from_text(
         }
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"解析失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="解析失败，请检查文件内容后重试")
 
 
 @router.post("/confirm")
@@ -282,7 +282,7 @@ def confirm_import(
         }
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"保存失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="保存失败，请稍后重试")
 
 
 # ==================== 旧的一步导入流程（保留兼容） ====================
@@ -361,7 +361,7 @@ async def import_from_file(
                 os.unlink(tmp_file_path)
             except:
                 pass
-        raise HTTPException(status_code=500, detail=f"导入失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="导入失败，请稍后重试")
 
 
 @router.post("/image", response_model=ImportResponse)
@@ -516,7 +516,7 @@ def import_from_text(
         )
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"导入失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="导入失败，请稍后重试")
 
 
 # ============================================================
@@ -627,7 +627,7 @@ async def agent_import_file(
         raise
     except Exception as e:
         _cleanup_temp_file(tmp_file_path)
-        raise HTTPException(status_code=500, detail=f"Agent 解析失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="Agent 解析失败，请稍后重试")
 
 
 @router.post("/agent/image")
@@ -671,7 +671,7 @@ async def agent_import_image(
         raise
     except Exception as e:
         _cleanup_temp_file(tmp_file_path)
-        raise HTTPException(status_code=500, detail=f"Agent 解析失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="Agent 解析失败，请稍后重试")
 
 
 @router.post("/agent/text")
@@ -708,7 +708,7 @@ def agent_import_text(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Agent 解析失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="Agent 解析失败，请稍后重试")
 
 
 @router.post("/agent/confirm")
@@ -750,4 +750,4 @@ def agent_confirm_import(
             }
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"保存失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="保存失败，请稍后重试")

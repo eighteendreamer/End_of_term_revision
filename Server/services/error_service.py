@@ -64,19 +64,45 @@ class ErrorService:
         question_ids: List[int]
     ) -> List[ErrorBook]:
         """
-        批量添加错题
+        批量添加错题（单次 SELECT + 单次 commit，替代逐题查询/提交）
         :param db: 数据库会话
         :param user_id: 用户 ID
         :param subject_id: 科目 ID
         :param question_ids: 题目 ID 列表
         :return: ErrorBook 列表
         """
-        errors = []
-        
+        if not question_ids:
+            return []
+
+        # 一次性取出已存在的错题记录
+        existing = db.query(ErrorBook).filter(
+            ErrorBook.user_id == user_id,
+            ErrorBook.subject_id == subject_id,
+            ErrorBook.question_id.in_(question_ids),
+        ).all()
+        existing_map = {e.question_id: e for e in existing}
+
+        now = datetime.now()
+        errors: List[ErrorBook] = []
         for question_id in question_ids:
-            error = ErrorService.add_error(db, user_id, subject_id, question_id)
+            error = existing_map.get(question_id)
+            if error:
+                # 已存在，增加错误次数
+                error.wrong_count += 1
+                error.last_wrong_at = now
+            else:
+                # 不存在，创建新记录
+                error = ErrorBook(
+                    user_id=user_id,
+                    subject_id=subject_id,
+                    question_id=question_id,
+                    wrong_count=1
+                )
+                db.add(error)
+                existing_map[question_id] = error
             errors.append(error)
-        
+
+        db.commit()
         return errors
     
     @staticmethod

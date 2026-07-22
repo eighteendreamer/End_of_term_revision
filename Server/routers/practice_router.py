@@ -127,32 +127,67 @@ def submit_answers(request: SubmitAnswersRequest, db: Session = Depends(get_defa
     """
     提交答案
     """
+    from database.models import Question
+
+    total = len(request.answers)
+
+    # 一次性取出本次提交涉及的全部题目，避免逐题查询（原来每题查询 2 次）
+    question_ids = [a.question_id for a in request.answers]
+    questions = (
+        db.query(Question).filter(Question.id.in_(question_ids)).all()
+        if question_ids else []
+    )
+    question_map = {q.id: q for q in questions}
+
     results = []
+    records_data = []
     correct_count = 0
     wrong_count = 0
     error_question_ids = []
-    
-    # 先计算结果
+
+    # 单次遍历：判分、收集练习记录、组装返回结果
     for answer_item in request.answers:
-        # 获取题目
-        question = QuestionService.get_question_by_id(db, answer_item.question_id)
-        
+        question = question_map.get(answer_item.question_id)
         if not question:
             continue
-        
+
         # 检查答案
         is_correct = PracticeService.check_answer(question, answer_item.user_answer)
-        
+
         if is_correct:
             correct_count += 1
         else:
             wrong_count += 1
             error_question_ids.append(answer_item.question_id)
-    
+
+        records_data.append({
+            "question_id": answer_item.question_id,
+            "user_answer": answer_item.user_answer,
+            "is_correct": is_correct,
+        })
+
+        # 格式化结果
+        options = []
+        if question.options_json:
+            try:
+                options = json.loads(question.options_json)
+            except:
+                options = []
+
+        results.append({
+            "question_id": question.id,
+            "type": question.type.value,
+            "question": question.question,
+            "options": options,
+            "user_answer": answer_item.user_answer,
+            "correct_answer": question.answer,
+            "is_correct": is_correct,
+            "analysis": question.analysis
+        })
+
     # 计算统计数据
-    total = len(request.answers)
     accuracy = (correct_count / total * 100) if total > 0 else 0
-    
+
     # 计算成绩等级
     if accuracy >= 90:
         grade = 'A'
@@ -164,7 +199,7 @@ def submit_answers(request: SubmitAnswersRequest, db: Session = Depends(get_defa
         grade = 'D'
     else:
         grade = 'F'
-    
+
     # 创建练习会话记录
     session_id = PracticeService.create_practice_session(
         db=db,
@@ -176,44 +211,16 @@ def submit_answers(request: SubmitAnswersRequest, db: Session = Depends(get_defa
         accuracy=round(accuracy, 2),
         grade=grade
     )
-    
-    # 创建每道题的练习记录
-    for answer_item in request.answers:
-        question = QuestionService.get_question_by_id(db, answer_item.question_id)
-        if not question:
-            continue
-        
-        is_correct = PracticeService.check_answer(question, answer_item.user_answer)
-        
-        PracticeService.create_practice_record(
-            db=db,
-            session_id=session_id,
-            user_id=request.user_id,
-            subject_id=request.subject_id,
-            question_id=answer_item.question_id,
-            user_answer=answer_item.user_answer,
-            is_correct=is_correct
-        )
-        
-        # 格式化结果
-        options = []
-        if question.options_json:
-            try:
-                options = json.loads(question.options_json)
-            except:
-                options = []
-        
-        results.append({
-            "question_id": question.id,
-            "type": question.type.value,
-            "question": question.question,
-            "options": options,
-            "user_answer": answer_item.user_answer,
-            "correct_answer": question.answer,
-            "is_correct": is_correct,
-            "analysis": question.analysis
-        })
-    
+
+    # 批量写入练习记录（单次提交，替代逐条 commit）
+    PracticeService.bulk_create_records(
+        db=db,
+        session_id=session_id,
+        user_id=request.user_id,
+        subject_id=request.subject_id,
+        records_data=records_data
+    )
+
     # 批量添加错题
     if error_question_ids:
         ErrorService.batch_add_errors(

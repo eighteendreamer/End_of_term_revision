@@ -207,17 +207,26 @@ async def security_middleware(request: Request, call_next):
     
     db = None
     try:
-        db = next(get_default_db())
+        # 已登录用户在限流逻辑中会被直接放行、根本不查库；
+        # 仅匿名请求或登录/注册接口才需要数据库连接。
+        # 这样避免为每个（多数为已登录的）请求空开一条 MySQL 连接。
+        path = request.url.path
+        needs_db = (
+            not SecurityMiddleware.is_authenticated(request)
+            or path in ("/api/auth/register", "/api/auth/login")
+        )
+        if needs_db:
+            db = next(get_default_db())
         
         # 1. 全局DDOS防护（内部会判断：已登录用户直接放行，匿名请求才限流）
         await SecurityMiddleware.check_ddos_protection(request, db)
         
         # 2. 注册接口特殊保护（注册本身是匿名操作，保留限流）
-        if request.url.path == "/api/auth/register":
+        if path == "/api/auth/register":
             await SecurityMiddleware.check_register_protection(request, db)
         
         # 3. 登录接口特殊保护（登录本身是匿名操作，保留限流）
-        if request.url.path == "/api/auth/login":
+        if path == "/api/auth/login":
             await SecurityMiddleware.check_login_protection(request, db)
         
         response = await call_next(request)

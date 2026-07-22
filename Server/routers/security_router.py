@@ -58,7 +58,7 @@ def get_ip_blacklist(
         }
     except Exception as e:
         logger.error(f"获取IP黑名单失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="获取IP黑名单失败，请稍后重试")
 
 
 @router.post("/ip-blacklist")

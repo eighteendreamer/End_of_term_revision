@@ -10,6 +10,9 @@ from urllib.parse import quote
 from database.db import get_default_db
 from services.material_service import MaterialService
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/materials", tags=["materials"])
 
@@ -72,7 +75,8 @@ async def upload_material(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"上传失败: {str(e)}")
+        logger.error("上传失败: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="上传失败，请稍后重试")
 
 
 @router.get("")
@@ -98,7 +102,8 @@ async def get_materials(
         )
         return {"code": 200, "message": "获取成功", "data": {"materials": materials}}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取资料列表失败: {str(e)}")
+        logger.error("获取资料列表失败: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="获取资料列表失败，请稍后重试")
 
 
 @router.get("/{material_id}/download")
@@ -119,7 +124,8 @@ async def download_material(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"下载失败: {str(e)}")
+        logger.error("下载失败: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="下载失败，请稍后重试")
 
     def iter_file():
         try:
@@ -156,7 +162,8 @@ async def get_material_detail(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取资料详情失败: {str(e)}")
+        logger.error("获取资料详情失败: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="获取资料详情失败，请稍后重试")
 
 
 @router.put("/{material_id}")
@@ -181,7 +188,8 @@ async def update_material(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"更新失败: {str(e)}")
+        logger.error("更新失败: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="更新失败，请稍后重试")
 
 
 @router.delete("/{material_id}")
@@ -203,7 +211,8 @@ async def delete_material(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"删除失败: {str(e)}")
+        logger.error("删除失败: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="删除失败，请稍后重试")
 
 
 @router.post("/{material_id}/extract-text")
@@ -227,7 +236,8 @@ async def extract_text(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"文本提取失败: {str(e)}")
+        logger.error("文本提取失败: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="文本提取失败，请稍后重试")
 
 
 class GenerateQuestionsRequest(BaseModel):
@@ -260,4 +270,5 @@ async def generate_questions(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"题目生成失败: {str(e)}")
+        logger.error("题目生成失败: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="题目生成失败，请稍后重试")

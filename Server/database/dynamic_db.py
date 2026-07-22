@@ -5,10 +5,12 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from typing import Dict
+from collections import OrderedDict
 import threading
 
-# 存储每个用户的数据库引擎
-_user_engines: Dict[int, any] = {}
+# 存储每个用户的数据库引擎（带上限的 LRU 缓存，防止引擎/连接池无限增长）
+_MAX_CACHED_ENGINES = 50
+_user_engines: "OrderedDict[int, any]" = OrderedDict()
 _lock = threading.Lock()
 
 
@@ -35,7 +37,7 @@ def get_dynamic_engine(user_id: int, db_config: dict):
     with _lock:
         # 如果已存在该用户的引擎，先关闭旧的
         if user_id in _user_engines:
-            _user_engines[user_id].dispose()
+            _user_engines.pop(user_id).dispose()
         
         # 创建新引擎（合理的连接池大小）
         db_url = get_user_db_url(db_config)
@@ -49,6 +51,10 @@ def get_dynamic_engine(user_id: int, db_config: dict):
             echo=False
         )
         _user_engines[user_id] = engine
+        # 超过上限时淘汰最久未使用的引擎并释放其连接池
+        while len(_user_engines) > _MAX_CACHED_ENGINES:
+            _old_uid, _old_engine = _user_engines.popitem(last=False)
+            _old_engine.dispose()
         return engine
 
 

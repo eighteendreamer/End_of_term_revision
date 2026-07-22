@@ -7,6 +7,7 @@ from typing import List
 from pydantic import BaseModel
 from database.db import get_default_db
 from database.models import LLMModel
+from utils.security import validate_external_url
 
 router = APIRouter(prefix="/api/models", tags=["模型配置"])
 
@@ -42,6 +43,9 @@ class ModelResponse(BaseModel):
 @router.post("/", response_model=ModelResponse)
 def create_model_config(model: ModelCreate, db: Session = Depends(get_default_db)):
     """创建模型配置"""
+    # SSRF 防护：校验 base_url 不指向内网/本机/云元数据地址
+    validate_external_url(model.base_url, "base_url")
+
     db_model = LLMModel(
         user_id=model.user_id,
         model_name=model.model_name,
@@ -111,6 +115,9 @@ def update_model_config(
     if not model:
         raise HTTPException(status_code=404, detail="模型配置不存在")
     
+    # SSRF 防护：校验 base_url 不指向内网/本机/云元数据地址
+    validate_external_url(model_update.base_url, "base_url")
+
     model.model_name = model_update.model_name
     model.base_url = model_update.base_url
     model.api_key = model_update.api_key

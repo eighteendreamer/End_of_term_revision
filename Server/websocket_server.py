@@ -174,6 +174,15 @@ async def handle_chat_message(websocket: WebSocket, from_user_id: int, message_d
         })
         return
     
+    # 校验消息内容类型与长度，防止超大/非法消息导致内存与存储压力
+    MAX_CONTENT_LEN = 10000
+    if not isinstance(content, str) or len(content) > MAX_CONTENT_LEN:
+        await websocket.send_json({
+            "type": "error",
+            "message": "消息内容非法或过长"
+        })
+        return
+    
     # 保存消息到数据库
     db = next(get_default_db())
     try:

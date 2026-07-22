@@ -43,9 +43,10 @@ class Config:
     ]
 
     # 百度 Unlimited-OCR 配置
-    # 在百度智能云控制台创建应用后获取: https://cloud.baidu.com/product/OCR/doc_parser.html
-    BAIDU_OCR_API_KEY: str = os.getenv("BAIDU_OCR_API_KEY", "U7TfJAi6m0IBAv3VZpzhum4F")
-    BAIDU_OCR_SECRET_KEY: str = os.getenv("BAIDU_OCR_SECRET_KEY", "T8SNzo5gpWJN07ODBzAHlmgTRDCYBKmY")
+    # 安全要求：密钥仅从环境变量读取，禁止硬编码到源码（源码泄露即密钥泄露）。
+    # 若此前曾把真实密钥提交到仓库，请务必到百度智能云控制台轮换（重置）密钥。
+    BAIDU_OCR_API_KEY: str = os.getenv("BAIDU_OCR_API_KEY", "")
+    BAIDU_OCR_SECRET_KEY: str = os.getenv("BAIDU_OCR_SECRET_KEY", "")
     OCR_ENABLED: bool = bool(BAIDU_OCR_API_KEY and BAIDU_OCR_SECRET_KEY)
 
 

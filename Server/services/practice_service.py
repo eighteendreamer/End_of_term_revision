@@ -118,6 +118,39 @@ class PracticeService:
         return records
     
     @staticmethod
+    def bulk_create_records(
+        db: Session,
+        session_id: int,
+        user_id: int,
+        subject_id: int,
+        records_data: List[Dict[str, Any]]
+    ) -> int:
+        """
+        批量创建练习记录（单次提交，替代逐条 commit）
+        :param db: 数据库会话
+        :param session_id: 会话 ID
+        :param user_id: 用户 ID
+        :param subject_id: 科目 ID
+        :param records_data: [{"question_id": int, "user_answer": str, "is_correct": bool}]
+        :return: 创建的记录数
+        """
+        records = [
+            PracticeRecord(
+                session_id=session_id,
+                user_id=user_id,
+                subject_id=subject_id,
+                question_id=item["question_id"],
+                user_answer=item["user_answer"],
+                is_correct=1 if item["is_correct"] else 0,
+            )
+            for item in records_data
+        ]
+        if records:
+            db.add_all(records)
+            db.commit()
+        return len(records)
+    
+    @staticmethod
     def get_statistics(db: Session, user_id: int, days: Optional[int] = None) -> Dict[str, Any]:
         """
         获取练习统计数据
@@ -126,17 +159,19 @@ class PracticeService:
         :param days: 统计最近几天（None 表示全部）
         :return: 统计数据字典
         """
-        query = db.query(PracticeRecord).filter(PracticeRecord.user_id == user_id)
+        query = db.query(
+            func.count(PracticeRecord.id),
+            func.coalesce(func.sum(PracticeRecord.is_correct), 0),
+        ).filter(PracticeRecord.user_id == user_id)
         
         # 如果指定天数，添加时间过滤
         if days:
             start_date = datetime.now() - timedelta(days=days)
             query = query.filter(PracticeRecord.created_at >= start_date)
         
-        records = query.all()
-        
-        total_count = len(records)
-        correct_count = sum(1 for r in records if r.is_correct == 1)
+        total_count, correct_count = query.one()
+        total_count = int(total_count or 0)
+        correct_count = int(correct_count or 0)
         wrong_count = total_count - correct_count
         
         accuracy = (correct_count / total_count * 100) if total_count > 0 else 0
@@ -181,15 +216,17 @@ class PracticeService:
         # 获取今天0点的时间
         today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         
-        query = db.query(PracticeRecord).filter(
+        query = db.query(
+            func.count(PracticeRecord.id),
+            func.coalesce(func.sum(PracticeRecord.is_correct), 0),
+        ).filter(
             PracticeRecord.user_id == user_id,
             PracticeRecord.created_at >= today_start
         )
         
-        records = query.all()
-        
-        total_count = len(records)
-        correct_count = sum(1 for r in records if r.is_correct == 1)
+        total_count, correct_count = query.one()
+        total_count = int(total_count or 0)
+        correct_count = int(correct_count or 0)
         wrong_count = total_count - correct_count
         
         accuracy = (correct_count / total_count * 100) if total_count > 0 else 0
@@ -217,15 +254,17 @@ class PracticeService:
         days_since_monday = now.weekday()
         monday_start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days_since_monday)
         
-        query = db.query(PracticeRecord).filter(
+        query = db.query(
+            func.count(PracticeRecord.id),
+            func.coalesce(func.sum(PracticeRecord.is_correct), 0),
+        ).filter(
             PracticeRecord.user_id == user_id,
             PracticeRecord.created_at >= monday_start
         )
         
-        records = query.all()
-        
-        total_count = len(records)
-        correct_count = sum(1 for r in records if r.is_correct == 1)
+        total_count, correct_count = query.one()
+        total_count = int(total_count or 0)
+        correct_count = int(correct_count or 0)
         wrong_count = total_count - correct_count
         
         accuracy = (correct_count / total_count * 100) if total_count > 0 else 0

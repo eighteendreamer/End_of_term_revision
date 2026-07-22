@@ -7,7 +7,7 @@ from sqlalchemy import or_, and_
 from database.models import Subject, SubjectShare, ShareType, User
 from typing import List, Optional, Dict, Any
 from fastapi import HTTPException
-from utils.redis_client import invalidate_cache
+from utils.redis_client import invalidate_cache, redis_client
 
 
 class ShareService:
@@ -82,6 +82,11 @@ class ShareService:
         Returns:
             set[int]: 可访问的科目ID集合
         """
+        cache_key = f"access:subjects:user:{user_id}"
+        cached = redis_client.get(cache_key)
+        if cached is not None:
+            return set(cached)
+
         ids = set()
 
         # 1. 自己创建的科目
@@ -101,6 +106,7 @@ class ShareService:
         ).all():
             ids.add(sid)
 
+        redis_client.set(cache_key, list(ids), expire=60)
         return ids
 
     @staticmethod
@@ -119,12 +125,16 @@ class ShareService:
         
         # 1. 获取自己创建的科目
         own_subjects = db.query(Subject).filter(Subject.user_id == user_id).all()
+        own_ids = [s.id for s in own_subjects]
+        # 一次性查出这些科目中已被共享出去的集合，避免逐科目查询（N+1）
+        shared_ids = set()
+        if own_ids:
+            shared_ids = {
+                sid for (sid,) in db.query(SubjectShare.subject_id).filter(
+                    SubjectShare.subject_id.in_(own_ids)
+                ).distinct().all()
+            }
         for subject in own_subjects:
-            # 检查该科目是否已被共享出去
-            has_shared = db.query(SubjectShare).filter(
-                SubjectShare.subject_id == subject.id
-            ).first() is not None
-            
             result.append({
                 'id': subject.id,
                 'name': subject.name,
@@ -135,7 +145,7 @@ class ShareService:
                 'is_shared': False,
                 'owner_username': None,
                 'share_type': None,
-                'has_shared': has_shared  # 新增：是否已共享出去
+                'has_shared': subject.id in shared_ids  # 是否已共享出去
             })
         
         # 2. 获取共享给自己的科目（指定用户共享）
@@ -184,52 +194,6 @@ class ShareService:
                 'owner_username': owner.username,
                 'share_type': 'PUBLIC',
                 'has_shared': False  # 非拥有者，此字段无意义
-            })
-        
-        return result
-        
-        # 2. 获取共享给自己的科目（指定用户共享）
-        user_shares = db.query(SubjectShare, Subject, User).join(
-            Subject, SubjectShare.subject_id == Subject.id
-        ).join(
-            User, Subject.user_id == User.id
-        ).filter(
-            SubjectShare.target_user_id == user_id,
-            SubjectShare.share_type == ShareType.USER
-        ).all()
-        
-        for share, subject, owner in user_shares:
-            result.append({
-                'id': subject.id,
-                'name': subject.name,
-                'user_id': subject.user_id,
-                'created_at': subject.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-                'is_owner': False,
-                'is_shared': True,
-                'owner_username': owner.username,
-                'share_type': 'USER'
-            })
-        
-        # 3. 获取公共科目（排除自己创建的）
-        public_shares = db.query(SubjectShare, Subject, User).join(
-            Subject, SubjectShare.subject_id == Subject.id
-        ).join(
-            User, Subject.user_id == User.id
-        ).filter(
-            SubjectShare.share_type == ShareType.PUBLIC,
-            Subject.user_id != user_id  # 排除自己的科目
-        ).all()
-        
-        for share, subject, owner in public_shares:
-            result.append({
-                'id': subject.id,
-                'name': subject.name,
-                'user_id': subject.user_id,
-                'created_at': subject.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-                'is_owner': False,
-                'is_shared': True,
-                'owner_username': owner.username,
-                'share_type': 'PUBLIC'
             })
         
         return result
@@ -360,10 +324,13 @@ class ShareService:
     ) -> None:
         """清除共享状态变更影响到的科目列表缓存。"""
         invalidate_cache(f"subjects:user:{owner_user_id}:*")
+        invalidate_cache(f"access:subjects:user:{owner_user_id}")
         if target_user_id is not None:
             invalidate_cache(f"subjects:user:{target_user_id}:*")
+            invalidate_cache(f"access:subjects:user:{target_user_id}")
         if share_type == 'PUBLIC':
             invalidate_cache("subjects:user:*")
+            invalidate_cache("access:subjects:user:*")
         invalidate_cache(f"shares:subject:{subject_id}:*")
     
     @staticmethod

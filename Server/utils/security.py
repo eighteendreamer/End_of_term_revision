@@ -10,6 +10,9 @@ import re
 import jwt
 import html
 import secrets
+import ipaddress
+import logging
+from urllib.parse import urlparse
 from fastapi import Request, HTTPException, status, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
@@ -17,10 +20,21 @@ from database.db import get_default_db
 from typing import Optional
 from datetime import datetime, timedelta
 
+logger = logging.getLogger(__name__)
+
 # ============================================================
 # JWT 配置（统一管理，从环境变量读取）
 # ============================================================
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", secrets.token_hex(32))
+_env_jwt_secret = os.getenv("JWT_SECRET_KEY")
+if not _env_jwt_secret:
+    # 未配置时回退为随机密钥：仅便于本地开发。
+    # 生产环境必须显式设置固定的 JWT_SECRET_KEY，否则重启/多进程会导致所有令牌失效。
+    logger.warning(
+        "未设置环境变量 JWT_SECRET_KEY，已使用临时随机密钥（仅限开发）。"
+        "生产环境请必须配置固定的 JWT_SECRET_KEY。"
+    )
+    _env_jwt_secret = secrets.token_hex(32)
+JWT_SECRET_KEY = _env_jwt_secret
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", str(60 * 24 * 7)))  # 默认7天
 
@@ -39,7 +53,9 @@ def decode_token(token: str) -> dict:
         return jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token已过期")
-    except jwt.JWTError:
+    except jwt.PyJWTError:
+        # PyJWT 的异常基类（旧代码误写为 jwt.JWTError，在 PyJWT 中不存在，
+        # 会导致非过期的非法 token 抛 AttributeError -> 500）
         raise HTTPException(status_code=401, detail="Token无效")
 
 
@@ -150,6 +166,52 @@ def validate_safe_input(value: str, field_name: str = "输入") -> str:
 
 
 # ============================================================
+# SSRF 防护：校验外部 URL（用于用户自定义的 LLM base_url 等）
+# ============================================================
+_BLOCKED_URL_HOSTS = {"localhost", "metadata.google.internal"}
+
+
+def is_safe_external_url(url: str) -> bool:
+    """
+    粗粒度 SSRF 防护：拒绝指向本机/内网/云元数据地址的 URL。
+    仅允许 http/https；若 host 为 IP 则拒绝私有/回环/链路本地/保留地址。
+    为避免阻塞，不做 DNS 解析（域名仅按主机名黑名单拦截）。
+    """
+    if not isinstance(url, str) or not url.strip():
+        return False
+    try:
+        parsed = urlparse(url.strip())
+    except Exception:
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    host = (parsed.hostname or "").strip().lower()
+    if not host or host in _BLOCKED_URL_HOSTS:
+        return False
+    if host == "169.254.169.254":  # 云元数据服务
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            return False
+    except ValueError:
+        # host 为域名，非 IP：不做 DNS 解析
+        pass
+    return True
+
+
+def validate_external_url(url: str, field_name: str = "URL") -> str:
+    """校验外部 URL，不合法或指向内网则抛 400。"""
+    if not is_safe_external_url(url):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{field_name} 不合法或指向了不被允许的内网地址"
+        )
+    return url
+
+
+# ============================================================
 # 安全响应头
 # ============================================================
 SECURITY_HEADERS = {
@@ -160,7 +222,7 @@ SECURITY_HEADERS = {
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Cache-Control": "no-store, no-cache, must-revalidate",
     "Pragma": "no-cache",
-    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self' data:;",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self' data:;",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 }
 
