@@ -11,6 +11,7 @@
   文档   整页渲染成图后，一页一批（见 services/document_renderer）
 """
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -24,6 +25,8 @@ from services.question_schema import parse_questions
 logger = logging.getLogger(__name__)
 
 CONCURRENCY = 3
+# 模型返回的题干通常保留原文题号（"15. …"），这是判断"漏了哪几题"的唯一线索
+STEM_NUMBER_RE = re.compile(r"^\s*(\d{1,3})[.、]")
 MAX_SPLIT_DEPTH = 3
 QUESTIONS_PER_PAGE = 6
 
@@ -53,6 +56,7 @@ class BatchMeta:
     retried: int = 0
     truncated: bool = False
     missing: int = 0
+    starved: bool = False
     errors: List[str] = field(default_factory=list)
 
 
@@ -168,9 +172,10 @@ class QuestionImportAgent:
 
     def _execute(self, plan: BatchPlan, subject: str, prompt_for: PromptFor,
                  index: int, depth: int,
-                 budget: Optional[int] = None) -> Tuple[Dict[str, Any], BatchMeta]:
+                 budget: Optional[int] = None,
+                 refill: bool = True) -> Tuple[Dict[str, Any], BatchMeta]:
         """
-        跑一批；被输出上限截断就重试。
+        跑一批；被输出上限截断就重试，模型少给题就按题号回补一次。
 
         文本批次按题号二分（题数是精确已知量，拆小就能装下）；
         整页图片批次拆不动，只能加码输出预算整页重问一次，且只重问一次。
@@ -191,6 +196,7 @@ class QuestionImportAgent:
         parsed = parse_questions(result.text)
         cut = result.truncated or parsed.get("truncated", False)
         meta.truncated = cut
+        meta.starved = result.starved
 
         if (cut and budget is None and not plan.blocks
                 and depth < MAX_SPLIT_DEPTH):
@@ -204,9 +210,19 @@ class QuestionImportAgent:
                     meta.errors.extend(retry_meta.errors)
                     meta.missing += retry_meta.missing
                     meta.truncated = retry_meta.truncated
+                    meta.starved = retry_meta.starved
                     return retry_parsed, meta
 
         if not cut or depth >= MAX_SPLIT_DEPTH or not plan.blocks:
+            if plan.blocks and not cut and not meta.starved and refill:
+                missing = _missing_blocks(plan, parsed)
+                if missing:
+                    extra, extra_meta = self._refill(plan, subject, prompt_for,
+                                                     index, missing)
+                    meta.batches += extra_meta.batches
+                    meta.retried += 1
+                    meta.errors.extend(extra_meta.errors)
+                    parsed = _merge_batch(parsed, extra)
             _diagnose(plan, parsed, meta)
             return parsed, meta
 
@@ -229,6 +245,29 @@ class QuestionImportAgent:
         combined["truncated"] = combined["truncated"] or parsed.get("truncated", False)
         return combined, meta
 
+    def _refill(self, plan: BatchPlan, subject: str, prompt_for: PromptFor,
+                index: int,
+                missing: List[QuestionBlock]) -> Tuple[Dict[str, Any], BatchMeta]:
+        """
+        只把模型漏掉的那几题再问一次。
+
+        整批重送会把已经拿到的题再要一遍（入库就重复），所以这里只送缺失题号；
+        也不递归回补——一轮补不齐就是模型给不出，剩下的差额记账交给用户。
+        """
+        meta = BatchMeta(batches=1)
+        sub = BatchPlan(label=plan.label, blocks=missing)
+        try:
+            result = self.client.complete_json(
+                IMPORT_SYSTEM, prompt_for(sub, subject, index),
+                self.client.output_budget(sub.question_count))
+        except Exception as exc:
+            logger.warning("批次 %s 回补失败: %s", plan.label, exc)
+            return dict(_EMPTY_BATCH), meta
+        parsed = parse_questions(result.text)
+        meta.truncated = result.truncated or parsed.get("truncated", False)
+        meta.starved = result.starved
+        return parsed, meta
+
 
 def _text_prompt(plan: BatchPlan, subject: str, index: int) -> str:
     return TEXT_USER.format(subject=subject, text=Batch(plan.blocks).text)
@@ -243,13 +282,59 @@ def _diagnose(plan: BatchPlan, parsed: Dict[str, Any], meta: BatchMeta) -> None:
     根本无从核对，模型静默少给题会被当成导入成功。
     """
     got = len(parsed["questions"])
+    # 思考型模型把整批预算吃光时，"未解析出题目"是没有处置方向的废话
+    reason = (f"输出预算全被模型思考占满，没有返回任何内容；请在「AI 模型配置」把"
+              f"最大输出 token 调大，或改用非思考模型") if meta.starved else ""
     if plan.blocks:
-        expected = plan.question_count
-        if got < expected:
-            meta.missing = expected - got
-            meta.errors.append(f"{plan.label} 送 {expected} 题只回来 {got} 题")
+        wanted = {_main_number(block.number) for block in plan.blocks}
+        wanted.discard("")
+        returned = _returned_numbers(parsed)
+        if wanted and returned:
+            # 模型按小问拆分（15(1)、15(2)）会让返回题数多于送出块数，数量差
+            # 不是守恒判据；只有"某个原文题号一题都没回"才是真缺。
+            lost = wanted - returned
+            meta.missing = len(lost)
+            if lost:
+                meta.errors.append("%s 缺第 %s 题" % (
+                    plan.label, "、".join(sorted(lost, key=int))))
+        elif got < len(plan.blocks):
+            meta.missing = len(plan.blocks) - got
+            meta.errors.append(f"{plan.label} 送 {len(plan.blocks)} 题只回来 {got} 题"
+                               + (f"：{reason}" if reason else ""))
     elif got == 0:
-        meta.errors.append(f"{plan.label} 未解析出任何题目")
+        meta.errors.append(reason or f"{plan.label} 未解析出任何题目")
+
+
+def _main_number(raw: Any) -> str:
+    """取题号的主编号：15(2)(ⅱ) → 15。模型按小问拆分时只有主号可比对。"""
+    match = re.match(r"\s*(\d{1,3})", str(raw or ""))
+    return match.group(1) if match else ""
+
+
+def _returned_numbers(parsed: Dict[str, Any]) -> set:
+    """回来的题覆盖了哪些主编号；优先用 JSON 的 no，退而扫题干开头的题号。"""
+    numbers = set()
+    for question in parsed["questions"]:
+        number = _main_number(question.get("number"))
+        if not number:
+            match = STEM_NUMBER_RE.match(str(question.get("question") or ""))
+            number = match.group(1) if match else ""
+        if number:
+            numbers.add(number)
+    return numbers
+
+
+def _missing_blocks(plan: BatchPlan, parsed: Dict[str, Any]) -> List[QuestionBlock]:
+    """
+    按原文主编号找出模型漏给的题块。
+
+    认不出任何题号时返回空：宁可少补一次，也不能把同一批题重复审进库里。
+    """
+    returned = _returned_numbers(parsed)
+    if not returned:
+        return []
+    return [block for block in plan.blocks
+            if _main_number(block.number) and _main_number(block.number) not in returned]
 
 
 def _better(candidate: Dict[str, Any], candidate_meta: BatchMeta,

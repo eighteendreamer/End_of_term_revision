@@ -180,6 +180,11 @@ def normalize_question(raw: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], L
         "answer": answer.strip(),
         "analysis": analysis.strip(),
         "resources": _normalize_resources(_first_key(raw, "resources", "resource")),
+        # 原文题号是模型对原文的判断，代码算不出来；留着才能定位"漏了哪几题"
+        **({"number": str(_first_key(raw, "no", "number", "question_number",
+                                      "题号", "序号")).strip()}
+           if str(_first_key(raw, "no", "number", "question_number",
+                             "题号", "序号") or "").strip() else {}),
     }, issues
 
 

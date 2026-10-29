@@ -102,13 +102,22 @@ def _data_url(data: bytes) -> str:
 def _payload(outcome) -> Dict[str, Any]:
     data = outcome.as_dict()
     stats = data["stats"]
-    message = f"成功解析 {len(data['questions'])} 道题目"
+    count = len(data["questions"])
+    if count == 0:
+        # 一批都没回来时不能报"成功解析 0 道题目"：用户会以为链路通了
+        reason = stats["errors"][0] if stats["errors"] else "模型没有返回任何题目"
+        message = f"导入失败：{reason}"
+        return {"code": 200, "message": message, "data": data}
+
+    message = f"成功解析 {count} 道题目"
     if stats["missing"]:
         message += f"，{stats['missing']} 道题模型没有吐回来"
     if stats["dropped"]:
         message += f"，{stats['dropped']} 道题未能解析"
     if stats["truncated"]:
         message += "；部分批次输出被截断，建议缩小单次导入范围"
+    if stats["errors"]:
+        message += f"；部分失败：{stats['errors'][0]}"
     return {"code": 200, "message": message, "data": data}
 
 

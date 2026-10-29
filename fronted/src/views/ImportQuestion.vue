@@ -122,10 +122,10 @@
         </n-space>
       </n-card>
 
-      <!-- 解析结果统计：截断与丢题必须让用户看见，不能只报一个"成功" -->
+      <!-- 解析结果统计：截断、丢题与整批失败都必须让用户看见，不能只报一个"成功" -->
       <n-alert
-        v-if="importStats && parsedQuestions.length"
-        :type="importStats.truncated || importStats.dropped || importStats.missing ? 'warning' : 'success'"
+        v-if="importStats && (parsedQuestions.length || importStats.errors?.length)"
+        :type="importStats.truncated || importStats.dropped || importStats.missing || importStats.errors?.length ? 'warning' : 'success'"
         :bordered="false"
       >
         本次共送 {{ importStats.batches }} 批模型请求{{
@@ -137,6 +137,9 @@
         }}。{{
           importStats.truncated ? ' 仍有批次被输出上限截断，建议缩小单次导入范围后补录。' : ''
         }}
+        <div v-for="(reason, i) in (importStats.errors || []).slice(0, 3)" :key="i">
+          失败原因：{{ reason }}
+        </div>
       </n-alert>
     </n-space>
 

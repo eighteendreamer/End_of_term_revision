@@ -247,5 +247,125 @@ class TestPageTruncationRetry(unittest.TestCase):
         self.assertTrue(outcome.truncated)
 
 
+class TestStarvedPage(unittest.TestCase):
+    """思考型模型把预算吃光、一个字不返回时，报错要给出可执行的处置方向。"""
+
+    def test_empty_output_reports_budget_not_generic_failure(self):
+        client = FakeClient([
+            Scripted(text="", finish_reason="length"),
+            Scripted(text="", finish_reason="length"),
+        ])
+        outcome = QuestionImportAgent(client).import_images(["a"], "数学")
+        joined = "；".join(outcome.errors)
+        self.assertEqual(outcome.count, 0)
+        self.assertIn("输出预算", joined,
+                      "只说「未解析出任何题目」用户不知道该做什么")
+        self.assertIn("思考", joined)
+
+    def test_starved_page_still_gets_one_bigger_retry(self):
+        client = FakeClient([
+            Scripted(text="", finish_reason="length"),
+            Scripted(text=_questions(["第1题"]), finish_reason="stop"),
+        ])
+        outcome = QuestionImportAgent(client).import_images(["a"], "数学")
+        self.assertEqual(len(client.calls), 2)
+        self.assertGreater(client.calls[1]["max_tokens"], client.calls[0]["max_tokens"])
+        self.assertEqual(outcome.count, 1, "加码后拿到题就不该再报缺题")
+        self.assertEqual(outcome.errors, [])
+
+
+class TestMissingNumberRefill(unittest.TestCase):
+    """
+    模型少给题时按原文题号回补一次。
+
+    真机实测：送 8 题回来 6 题是常态（共享同一段阅读材料的题被模型合并）。
+    只记账不回补，"入库题数 = 原文题数"这条验收线永远达不到。
+    """
+
+    def test_short_batch_is_refilled_for_the_missing_numbers(self):
+        client = FakeClient([
+            Scripted(text=_questions(["1. 第一题题干", "2. 第二题题干",
+                                      "3. 第三题题干"])),
+            Scripted(text=_questions(["4. 第四题题干", "5. 第五题题干"])),
+        ])
+        outcome = QuestionImportAgent(client).import_text(_numbered_text(5), "数学")
+        self.assertEqual(outcome.count, 5, "回补后应凑齐送进去的 5 题")
+        self.assertEqual(outcome.missing, 0)
+        self.assertEqual(len(client.calls), 2)
+        # 回补批次只带缺失的题号，不能把整批重送一遍
+        self.assertNotIn("1. 这是第1题", client.calls[1]["user"])
+        self.assertIn("5. 这是第5题", client.calls[1]["user"])
+
+    def test_refill_is_bounded_to_one_pass(self):
+        client = FakeClient([
+            Scripted(text=_questions(["1. 第一题题干"])),
+            Scripted(text=_questions(["2. 第二题题干"])),
+        ])
+        outcome = QuestionImportAgent(client).import_text(_numbered_text(5), "数学")
+        self.assertEqual(len(client.calls), 2, "回补只跑一轮，不能递归追打")
+        self.assertEqual(outcome.missing, 3, "补不齐的差额仍要记账")
+        self.assertTrue(any("缺第" in e for e in outcome.errors),
+                        "要点名缺的是哪几题，而不是只报一个差额")
+
+    def test_sub_question_split_is_not_missing(self):
+        """提示词要求把 15(1)/15(2) 拆成独立题目，拆分不能被当成缺题再补一遍。"""
+        payload = json.dumps({"questions": [
+            {"no": no, "type": "major", "question": f"第 {no} 小问",
+             "options": [], "answer": "见解析", "analysis": "略"}
+            for no in ("14", "15(1)", "15(2)", "16")]}, ensure_ascii=False)
+        client = FakeClient([Scripted(text=payload)])
+        source = "\n".join(f"{n}. 这是第{n}题的题干内容" for n in (14, 15, 16))
+        outcome = QuestionImportAgent(client).import_text(source, "数学")
+        self.assertEqual(len(client.calls), 1, "15 已被 15(1)/15(2) 覆盖，不该再补问")
+        self.assertEqual(outcome.missing, 0)
+        self.assertEqual(outcome.count, 4)
+
+    def test_no_refill_when_numbers_are_not_recognisable(self):
+        """题干里没有题号时对不上号，回补会把同一批重复审进去造成重复入库。"""
+        client = FakeClient([
+            Scripted(text=_questions(["没有标号的题干甲", "没有标号的题干乙"])),
+        ])
+        outcome = QuestionImportAgent(client).import_text(_numbered_text(4), "数学")
+        self.assertEqual(len(client.calls), 1, "认不出题号就不该回补")
+        self.assertEqual(outcome.count, 2)
+        self.assertEqual(outcome.missing, 2)
+
+    def test_refill_uses_the_no_field_when_stems_drop_the_number(self):
+        """真机实测模型返回的英文题干不带题号，此时靠 JSON 里的 no 字段对齐。"""
+        def payload(numbers):
+            return json.dumps({"questions": [
+                {"no": n, "type": "single", "question": f"stem of {n}",
+                 "options": ["A. 一", "B. 二"], "answer": "A", "analysis": "因为甲"}
+                for n in numbers]}, ensure_ascii=False)
+
+        client = FakeClient([
+            Scripted(text=payload(["1", "2", "3"])),
+            Scripted(text=payload(["4", "5"])),
+        ])
+        outcome = QuestionImportAgent(client).import_text(_numbered_text(5), "数学")
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual(outcome.count, 5)
+        self.assertEqual(outcome.missing, 0)
+        self.assertNotIn("1. 这是第1题", client.calls[1]["user"],
+                         "回补只送缺的 4、5 题")
+
+
+class TestNumberFieldContract(unittest.TestCase):
+    """no/题号 是模型对原文的判断，代码算不出来，所以进 JSON 契约并由代码保留。"""
+
+    def test_normalized_question_keeps_source_number(self):
+        from services.question_schema import normalize_question
+        kept, _ = normalize_question({"no": "15", "type": "single",
+                                      "question": "Which of the following",
+                                      "options": ["A. 一", "B. 二"], "answer": "A"})
+        self.assertEqual(kept["number"], "15")
+
+    def test_missing_number_does_not_add_noise(self):
+        from services.question_schema import normalize_question
+        kept, _ = normalize_question({"type": "single", "question": "题干",
+                                      "options": ["A. 一", "B. 二"], "answer": "A"})
+        self.assertNotIn("number", kept)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

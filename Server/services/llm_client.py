@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = 120.0
 DEFAULT_MAX_RETRIES = 2
 RETRYABLE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
+# 限流是"窗口没到"，偶发 5xx 是"抖一下"，两者的重试预算不该一样
+RATE_LIMIT_STATUS = 429
+RATE_LIMIT_ATTEMPTS = 5
 
 # 中文约 1 字 0.6~1 token，英文约 4 字符 1 token；取保守值再留 15% 余量
 _TOKEN_SAFETY = 1.15
@@ -53,6 +56,14 @@ class LLMResult:
     @property
     def ok(self) -> bool:
         return bool(self.text)
+
+    @property
+    def starved(self) -> bool:
+        """
+        思考型模型把整批 max_tokens 花在隐藏思考上：finish_reason 是 length，
+        可见内容却是空的。这与"吐了半截 JSON"不同，加码之外用户还得换模型或调大上限。
+        """
+        return self.truncated and not self.text.strip()
 
 
 class LLMUnavailable(Exception):
@@ -100,8 +111,9 @@ class LLMClient:
         messages = self._build_messages(system, user, images)
         errors: List[str] = []
         attempts = 0
+        attempt = 0
 
-        for attempt in range(self.max_retries + 1):
+        while True:
             attempts += 1
             use_json_mode = self.supports_json_mode
             kwargs: Dict[str, Any] = {
@@ -117,22 +129,26 @@ class LLMClient:
                 response = self._client.chat.completions.create(**kwargs)
             except APIStatusError as exc:
                 status = exc.status_code
+                budget = (RATE_LIMIT_ATTEMPTS if status == RATE_LIMIT_STATUS
+                          else self.max_retries + 1)
                 if use_json_mode and status in (400, 404, 422):
                     self.supports_json_mode = False
                     errors.append(f"response_format 被拒({status})，已降级")
                     attempts -= 1
-                elif status in RETRYABLE_STATUS and attempt < self.max_retries:
+                elif status in RETRYABLE_STATUS and attempt < budget - 1:
                     errors.append(f"HTTP {status}")
-                    self._backoff(attempt)
+                    self._backoff(attempt, status)
                 else:
                     errors.append(f"HTTP {status}")
                     raise LLMUnavailable(self._friendly(status, exc)) from exc
+                attempt += 1
                 continue
             except (APITimeoutError, APIConnectionError) as exc:
                 errors.append(f"{type(exc).__name__}")
                 if attempt >= self.max_retries:
                     raise LLMUnavailable("模型服务连接失败或超时，请稍后重试") from exc
                 self._backoff(attempt)
+                attempt += 1
                 continue
 
             return self._to_result(response, use_json_mode, attempts, errors)
@@ -182,5 +198,8 @@ class LLMClient:
         return f"模型服务返回 HTTP {status}"
 
     @staticmethod
-    def _backoff(attempt: int) -> None:
-        time.sleep(min(8.0, (2 ** attempt) + random.random()))
+    def _backoff(attempt: int, status: int = 0) -> None:
+        if status == RATE_LIMIT_STATUS:
+            time.sleep(min(30.0, 2.0 * (2 ** attempt)) + random.random())
+        else:
+            time.sleep(min(8.0, (2 ** attempt) + random.random()))

@@ -153,8 +153,8 @@ class TestTextChain(unittest.TestCase):
         text, _client, outcome = self._run(10, drop=[7])
         self.assertEqual(outcome.count, len(source_numbers(text)) - 1)
         self.assertEqual(outcome.missing, 1)
-        self.assertTrue(any("只回来" in e for e in outcome.errors),
-                        outcome.errors)
+        self.assertTrue(any("缺第 7 题" in e for e in outcome.errors),
+                        "要直接点名缺的是第 7 题，而不是只给一个差额")
 
     def test_truncated_questions_are_admitted_only_with_visible_doubts(self):
         """

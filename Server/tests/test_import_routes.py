@@ -283,6 +283,22 @@ class TestErrorMapping(RouteTestBase):
         self.assertIn("1 道题未能解析", message)
         self.assertIn("截断", message)
 
+    def test_payload_never_calls_zero_questions_a_success(self):
+        """真机实测：0 题时 message 仍写「成功解析 0 道题目」，用户以为链路通了。"""
+        outcome = ImportOutcome(subject="数学", questions=[],
+                                errors=["page1 输出预算被思考占满，没有返回任何内容"])
+        payload = import_router._payload(outcome)
+        self.assertFalse(payload["message"].startswith("成功"), payload["message"])
+        self.assertIn("没有返回任何内容", payload["message"],
+                      "要把失败原因带到 message 里，不能只藏在 stats 里")
+
+    def test_payload_partial_success_says_partial(self):
+        outcome = ImportOutcome(subject="数学", questions=[{"question": "1"}],
+                                errors=["batch2 送 8 题只回来 0 题"], missing=7)
+        message = import_router._payload(outcome)["message"]
+        self.assertIn("部分失败", message)
+        self.assertIn("batch2", message)
+
     def test_limits_endpoint_exposes_thresholds(self):
         resp = self.client.get("/api/import/limits")
         self.assertEqual(resp.status_code, 200)
