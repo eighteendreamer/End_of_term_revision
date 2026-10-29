@@ -295,4 +295,9 @@ def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=8001, reload=True)
+    uvicorn.run(
+        "app:app",
+        host=os.getenv("APP_HOST", "127.0.0.1"),
+        port=int(os.getenv("APP_PORT", "8001")),
+        reload=os.getenv("APP_RELOAD", "false").lower() in ("1", "true", "yes"),
+    )

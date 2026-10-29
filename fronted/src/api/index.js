@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { createChatWebSocketUrl } from '../utils/websocket-url.js'
 
 const request = axios.create({
   baseURL: '/api',
@@ -511,7 +512,7 @@ export class ChatWebSocket {
 
   connect() {
     const token = sessionStorage.getItem('token')
-    const wsUrl = `ws://localhost:8001/ws/${this.userId}?token=${encodeURIComponent(token || '')}`
+    const wsUrl = createChatWebSocketUrl(this.userId, token)
     this.ws = new WebSocket(wsUrl)
 
     this.ws.onopen = () => {

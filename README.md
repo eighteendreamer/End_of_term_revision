@@ -210,6 +210,8 @@ End_of_term_revision/
 
 ## 🚀 快速开始
 
+> 生产环境采用“两台服务器、腾讯云统一 HTTPS 入口”，见 [Nginx 入口配置模板](./deploy/nginx-tencent-entry.conf)。下面的热重载命令仅用于开发。
+
 ### 环境要求
 
 - Python 3.8 或更高版本
