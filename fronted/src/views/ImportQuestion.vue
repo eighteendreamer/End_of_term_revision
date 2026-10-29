@@ -94,6 +94,8 @@
                 type="textarea"
                 placeholder="请粘贴题目内容，例如：&#10;&#10;1. 1+1等于多少？&#10;A. 1&#10;B. 2&#10;C. 3&#10;D. 4&#10;答案：B&#10;解析：基础加法运算"
                 :rows="10"
+                :maxlength="maxTextChars"
+                show-count
               />
               <n-button
                 type="primary"
@@ -140,6 +142,7 @@
     <QuestionPreviewDialog
       v-model:show="showPreview"
       :questions="parsedQuestions"
+      :issues="importIssues"
       @confirm="handleConfirmImport"
       @cancel="handleCancelPreview"
     />
@@ -189,6 +192,22 @@ const startElapsed = () => {
   elapsedTimer = setInterval(() => { elapsed.value += 1 }, 1000)
 }
 const stopElapsed = () => clearInterval(elapsedTimer)
+
+// 逐题解析告警（缺答案、选项疑似只有标号等），由后端按题号给出
+const importIssues = ref({})
+
+// 输入上限从后端读，避免同一规则在前后端各写一个数字
+const inputLimits = ref({})
+const maxTextChars = computed(() => inputLimits.value.max_text_chars || 60000)
+
+const loadLimits = async () => {
+  try {
+    const response = await importApi.limits()
+    inputLimits.value = (response.data && response.data.limits) || {}
+  } catch {
+    // 读不到就沿用兜底值，后端仍会做硬校验
+  }
+}
 
 // 科目选项
 const subjectOptions = computed(() => {
@@ -270,6 +289,7 @@ const handleFileUpload = async ({ file, onFinish, onError }) => {
     const data = response.data || response
     parsedQuestions.value = data.questions || []
     importStats.value = data.stats || null
+    importIssues.value = data.issues || {}
     
     if (parsedQuestions.value.length === 0) {
       message.error('未能解析出题目')
@@ -324,6 +344,7 @@ const handleImageUpload = async ({ file, onFinish, onError }) => {
     const data = response.data || response
     parsedQuestions.value = data.questions || []
     importStats.value = data.stats || null
+    importIssues.value = data.issues || {}
     
     if (parsedQuestions.value.length === 0) {
       message.error('未能解析出题目')
@@ -369,6 +390,7 @@ const handleTextParse = async () => {
     const data = response.data || response
     parsedQuestions.value = data.questions || []
     importStats.value = data.stats || null
+    importIssues.value = data.issues || {}
     
     if (parsedQuestions.value.length === 0) {
       message.error('未能解析出题目')
@@ -416,5 +438,6 @@ const handleCancelPreview = () => {
 onMounted(() => {
   loadSubjects()
   loadModels()
+  loadLimits()
 })
 </script>

@@ -27,6 +27,17 @@
           </n-space>
         </template>
 
+        <!-- 后端逐题解析时发现的疑点，直接摊在题面上让人工核对，不再静默入库 -->
+        <n-alert
+          v-if="issuesFor(index).length"
+          type="warning"
+          size="small"
+          :bordered="false"
+          style="margin-bottom: 10px;"
+        >
+          {{ issuesFor(index).join('；') }}
+        </n-alert>
+
         <n-form :model="question" label-placement="left" label-width="70" size="small">
           <!-- 题型 -->
           <n-form-item label="题型">
@@ -119,8 +130,15 @@ const props = defineProps({
   questions: {
     type: Array,
     default: () => []
+  },
+  // 题号 -> 疑点列表。HTTP 传回来后键是字符串，取值统一走 issuesFor()
+  issues: {
+    type: Object,
+    default: () => ({})
   }
 })
+
+const issuesFor = (index) => props.issues[index] || props.issues[String(index)] || []
 
 const emit = defineEmits(['update:show', 'confirm', 'cancel'])
 
