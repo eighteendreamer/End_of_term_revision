@@ -1,32 +1,34 @@
 """
-题目导入路由（文件/图片导入 + AI 解析）
+题目导入路由（文件 / 图片 / 文本 → 大模型识别 → 预览 → 入库）
+
+三条入口共用 agents.question_import_agent 一套流程；本层只做四件事：
+校验输入限制、挑模型配置、把领域异常翻译成对用户有意义的状态码、返回统计。
+
+调用模型的处理端点一律声明为同步 def，交给 Starlette 线程池执行。
+原先 async def 里直接调阻塞的模型请求，会在单进程 uvicorn 下把整个事件循环
+卡住几十秒到几分钟，连带 /health 与聊天 WebSocket 一起无响应。
 """
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
-from sqlalchemy.orm import Session
-from typing import List, Dict, Any
-from pydantic import BaseModel
 import os
 import tempfile
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from agents.question_import_agent import QuestionImportAgent
 from database.db import get_default_db
-from database.models import LLMModel, Subject
-from services.ai_parser import create_ai_parser
+from database.models import Subject
+from services import import_limits
+from services.document_renderer import RendererUnavailable, render_to_images
+from services.llm_client import LLMUnavailable
+from services.llm_config_service import (NoModelConfigured, VisionRequired,
+                                         build_client, get_user_llm)
 from services.question_service import QuestionService
 
 router = APIRouter(prefix="/api/import", tags=["题目导入"])
 
-
-class ImportResponse(BaseModel):
-    """导入响应"""
-    success: bool
-    message: str
-    count: int
-
-
-class PreviewResponse(BaseModel):
-    """预览响应"""
-    success: bool
-    message: str
-    questions: List[Dict[str, Any]]
+TEXT_EXTENSIONS = {".txt"}
 
 
 class TextImportRequest(BaseModel):
@@ -34,6 +36,7 @@ class TextImportRequest(BaseModel):
     user_id: int
     subject_id: int
     text: str
+    model_id: Optional[int] = None
 
 
 class ConfirmImportRequest(BaseModel):
@@ -43,690 +46,169 @@ class ConfirmImportRequest(BaseModel):
     questions: List[Dict[str, Any]]
 
 
-# ==================== 新的两步导入流程 ====================
+# ----------------------------------------------------------------------
+# 辅助
+# ----------------------------------------------------------------------
 
-@router.post("/preview/file")
-async def preview_from_file(
-    user_id: int = Form(...),
-    subject_id: int = Form(...),
-    file: UploadFile = File(...),
-    db: Session = Depends(get_default_db)
-):
-    """
-    从文件预览题目（第一步：AI解析，不保存）
-    """
-    # 获取用户的 LLM 配置
-    llm_config = db.query(LLMModel).filter(LLMModel.user_id == user_id).first()
-    if not llm_config:
-        raise HTTPException(status_code=400, detail="请先配置 AI 模型")
-    
-    # 获取科目信息（验证用户权限）
-    subject = db.query(Subject).filter(
-        Subject.id == subject_id,
-        Subject.user_id == user_id
-    ).first()
+def _load_subject(db: Session, user_id: int, subject_id: int) -> Subject:
+    subject = (db.query(Subject)
+               .filter(Subject.id == subject_id, Subject.user_id == user_id)
+               .first())
     if not subject:
         raise HTTPException(status_code=404, detail="科目不存在或无权访问")
-    
-    tmp_file_path = None
+    return subject
+
+
+def _agent(db: Session, user_id: int, model_id: Optional[int],
+           need_vision: bool) -> QuestionImportAgent:
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as tmp_file:
-            content = await file.read()
-            tmp_file.write(content)
-            tmp_file_path = tmp_file.name
-        
-        parser = create_ai_parser(
-            base_url=llm_config.base_url,
-            api_key=llm_config.api_key,
-            model_name=llm_config.model_name
-        )
-        
-        parsed_data = parser.parse_file_to_questions(tmp_file_path, subject.name)
-        
-        if tmp_file_path and os.path.exists(tmp_file_path):
-            os.unlink(tmp_file_path)
-        
-        if not parsed_data.get("questions"):
-            raise HTTPException(status_code=400, detail="AI未能从文件中解析出任何题目，请检查文件内容")
-        
-        return {
-            "code": 200,
-            "message": f"成功解析 {len(parsed_data['questions'])} 道题目",
-            "data": {
-                "questions": parsed_data["questions"]
-            }
-        }
-    
-    except HTTPException:
-        if tmp_file_path and os.path.exists(tmp_file_path):
-            try:
-                os.unlink(tmp_file_path)
-            except:
-                pass
-        raise
-    except Exception as e:
-        if tmp_file_path and os.path.exists(tmp_file_path):
-            try:
-                os.unlink(tmp_file_path)
-            except:
-                pass
-        raise HTTPException(status_code=500, detail="解析失败，请检查文件内容后重试")
+        config = get_user_llm(db, user_id, model_id=model_id,
+                              need_vision=need_vision)
+    except (NoModelConfigured, VisionRequired) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return QuestionImportAgent(build_client(config))
 
 
-@router.post("/preview/image")
-async def preview_from_image(
-    user_id: int = Form(...),
-    subject_id: int = Form(...),
-    image: UploadFile = File(...),
-    db: Session = Depends(get_default_db)
-):
-    """
-    从图片预览题目（第一步：AI解析，不保存）
-    """
-    import traceback
-    
-    # 获取用户的 LLM 配置
-    llm_config = db.query(LLMModel).filter(LLMModel.user_id == user_id).first()
-    if not llm_config:
-        raise HTTPException(status_code=400, detail="请先在「AI 模型配置」页面添加模型配置")
-    
-    # 获取科目信息（验证用户权限）
-    subject = db.query(Subject).filter(
-        Subject.id == subject_id,
-        Subject.user_id == user_id
-    ).first()
-    if not subject:
-        raise HTTPException(status_code=404, detail="科目不存在或无权访问")
-    
-    tmp_file_path = None
-    
+def _save_temp(upload_file: UploadFile) -> str:
+    """把上传流落到临时文件，返回路径。"""
+    suffix = os.path.splitext(upload_file.filename or "")[1].lower()
+    handle = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(image.filename)[1]) as tmp_file:
-            content = await image.read()
-            tmp_file.write(content)
-            tmp_file_path = tmp_file.name
-        
-        print(f"[预览图片] 用户ID: {user_id}, 科目: {subject.name}, 文件: {image.filename}")
-        
-        parser = create_ai_parser(
-            base_url=llm_config.base_url,
-            api_key=llm_config.api_key,
-            model_name=llm_config.model_name
-        )
-        
-        print(f"[AI解析] 开始OCR识别和AI解析...")
-        
-        parsed_data = parser.parse_image_to_questions(tmp_file_path, subject.name)
-        
-        if tmp_file_path and os.path.exists(tmp_file_path):
-            os.unlink(tmp_file_path)
-        
-        if not parsed_data.get("questions"):
-            raise ValueError("AI未能从图片中识别出题目，请确保图片清晰且包含完整题目")
-        
-        print(f"[AI解析] 成功解析 {len(parsed_data['questions'])} 道题目")
-        
-        return {
-            "code": 200,
-            "message": f"成功解析 {len(parsed_data['questions'])} 道题目",
-            "data": {
-                "questions": parsed_data["questions"]
-            }
-        }
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        error_detail = str(e)
-        error_traceback = traceback.format_exc()
-        
-        print(f"[解析错误] {error_detail}")
-        print(error_traceback)
-        
-        if tmp_file_path and os.path.exists(tmp_file_path):
-            try:
-                os.unlink(tmp_file_path)
-            except:
-                pass
-        
-        if "tesseract" in error_detail.lower():
-            raise HTTPException(status_code=500, detail="OCR引擎未安装，请先安装 Tesseract OCR")
-        elif "openai" in error_detail.lower() or "api" in error_detail.lower():
-            raise HTTPException(status_code=500, detail=f"AI API调用失败: {error_detail}")
-        else:
-            raise HTTPException(status_code=500, detail=f"解析失败: {error_detail}")
+        handle.write(upload_file.file.read())
+    finally:
+        handle.close()
+    return handle.name
 
 
-@router.post("/preview/text")
-def preview_from_text(
-    request: TextImportRequest,
-    db: Session = Depends(get_default_db)
-):
-    """
-    从文本预览题目（第一步：AI解析，不保存）
-    """
-    # 获取用户的 LLM 配置
-    llm_config = db.query(LLMModel).filter(LLMModel.user_id == request.user_id).first()
-    if not llm_config:
-        raise HTTPException(status_code=400, detail="请先配置 AI 模型")
-    
-    # 获取科目信息（验证用户权限）
-    subject = db.query(Subject).filter(
-        Subject.id == request.subject_id,
-        Subject.user_id == request.user_id
-    ).first()
-    if not subject:
-        raise HTTPException(status_code=404, detail="科目不存在或无权访问")
-    
-    try:
-        parser = create_ai_parser(
-            base_url=llm_config.base_url,
-            api_key=llm_config.api_key,
-            model_name=llm_config.model_name
-        )
-        
-        parsed_data = parser.parse_text_to_questions(request.text, subject.name)
-        
-        if not parsed_data.get("questions"):
-            raise HTTPException(status_code=400, detail="AI未能从文本中解析出任何题目")
-        
-        return {
-            "code": 200,
-            "message": f"成功解析 {len(parsed_data['questions'])} 道题目",
-            "data": {
-                "questions": parsed_data["questions"]
-            }
-        }
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="解析失败，请检查文件内容后重试")
+def _read(path: str) -> bytes:
+    with open(path, "rb") as handle:
+        return handle.read()
 
 
-@router.post("/confirm")
-def confirm_import(
-    request: ConfirmImportRequest,
-    db: Session = Depends(get_default_db)
-):
-    """
-    确认导入题目（第二步：保存到数据库）
-    """
-    # 验证科目权限
-    subject = db.query(Subject).filter(
-        Subject.id == request.subject_id,
-        Subject.user_id == request.user_id
-    ).first()
-    if not subject:
-        raise HTTPException(status_code=404, detail="科目不存在或无权访问")
-    
-    try:
-        # 批量创建题目（含去重）
-        result = QuestionService.batch_create_questions(
-            db=db,
-            user_id=request.user_id,
-            subject_id=request.subject_id,
-            questions_data=request.questions,
-            skip_duplicates=True
-        )
-        
-        message = f"成功导入 {result['created_count']} 道题目"
-        if result['skipped_count'] > 0:
-            message += f"（跳过 {result['skipped_count']} 道重复题目）"
-        
-        return {
-            "code": 200,
-            "message": message,
-            "data": {
-                "created_count": result['created_count'],
-                "skipped_count": result['skipped_count']
-            }
-        }
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="保存失败，请稍后重试")
-
-
-# ==================== 旧的一步导入流程（保留兼容） ====================
-
-async def import_from_file(
-    user_id: int = Form(...),
-    subject_id: int = Form(...),
-    file: UploadFile = File(...),
-    db: Session = Depends(get_default_db)
-):
-    """
-    从文件导入题目（支持 PDF、Word、文本）
-    """
-    # 获取用户的 LLM 配置
-    llm_config = db.query(LLMModel).filter(LLMModel.user_id == user_id).first()
-    if not llm_config:
-        raise HTTPException(status_code=400, detail="请先配置 AI 模型")
-    
-    # 获取科目信息（验证用户权限）
-    subject = db.query(Subject).filter(
-        Subject.id == subject_id,
-        Subject.user_id == user_id
-    ).first()
-    if not subject:
-        raise HTTPException(status_code=404, detail="科目不存在或无权访问")
-    
-    tmp_file_path = None
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as tmp_file:
-            content = await file.read()
-            tmp_file.write(content)
-            tmp_file_path = tmp_file.name
-        
-        parser = create_ai_parser(
-            base_url=llm_config.base_url,
-            api_key=llm_config.api_key,
-            model_name=llm_config.model_name
-        )
-        
-        parsed_data = parser.parse_file_to_questions(tmp_file_path, subject.name)
-        
-        if not parsed_data.get("questions"):
-            raise HTTPException(status_code=400, detail="AI未能从文件中解析出任何题目，请检查文件内容是否为清晰的试题文本或适当拆分后重试")
-        
-        result = QuestionService.batch_create_questions(
-            db=db,
-            user_id=user_id,
-            subject_id=subject_id,
-            questions_data=parsed_data["questions"],
-            skip_duplicates=True
-        )
-        
-        if tmp_file_path and os.path.exists(tmp_file_path):
-            os.unlink(tmp_file_path)
-        
-        message = f"成功导入 {result['created_count']} 道题目"
-        if result['skipped_count'] > 0:
-            message += f"（跳过 {result['skipped_count']} 道重复题目）"
-        
-        return ImportResponse(
-            success=True,
-            message=message,
-            count=result['created_count']
-        )
-    
-    except HTTPException:
-        if tmp_file_path and os.path.exists(tmp_file_path):
-            try:
-                os.unlink(tmp_file_path)
-            except:
-                pass
-        raise
-    except Exception as e:
-        if tmp_file_path and os.path.exists(tmp_file_path):
-            try:
-                os.unlink(tmp_file_path)
-            except:
-                pass
-        raise HTTPException(status_code=500, detail="导入失败，请稍后重试")
-
-
-@router.post("/image", response_model=ImportResponse)
-async def import_from_image(
-    user_id: int = Form(...),
-    subject_id: int = Form(...),
-    image: UploadFile = File(...),
-    db: Session = Depends(get_default_db)
-):
-    """
-    从图片导入题目（OCR + AI 解析）
-    """
-    import traceback
-    
-    # 获取用户的 LLM 配置
-    llm_config = db.query(LLMModel).filter(LLMModel.user_id == user_id).first()
-    if not llm_config:
-        raise HTTPException(status_code=400, detail="请先在「AI 模型配置」页面添加模型配置")
-    
-    # 获取科目信息（验证用户权限）
-    subject = db.query(Subject).filter(
-        Subject.id == subject_id,
-        Subject.user_id == user_id
-    ).first()
-    if not subject:
-        raise HTTPException(status_code=404, detail="科目不存在或无权访问")
-    
-    tmp_file_path = None
-    
-    # 保存上传的图片到临时目录
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(image.filename)[1]) as tmp_file:
-            content = await image.read()
-            tmp_file.write(content)
-            tmp_file_path = tmp_file.name
-        
-        print(f"[导入图片] 用户ID: {user_id}, 科目: {subject.name}, 文件: {image.filename}")
-        
-        # 创建 AI 解析器
-        parser = create_ai_parser(
-            base_url=llm_config.base_url,
-            api_key=llm_config.api_key,
-            model_name=llm_config.model_name
-        )
-        
-        print(f"[AI解析] 开始OCR识别和AI解析...")
-        
-        # 解析图片
-        parsed_data = parser.parse_image_to_questions(tmp_file_path, subject.name)
-        
-        if not parsed_data.get("questions"):
-            raise ValueError("AI未能从图片中识别出题目，请确保图片清晰且包含完整题目")
-        
-        print(f"[AI解析] 成功解析 {len(parsed_data['questions'])} 道题目")
-        
-        # 批量创建题目（含去重）
-        result = QuestionService.batch_create_questions(
-            db=db,
-            user_id=user_id,
-            subject_id=subject_id,
-            questions_data=parsed_data["questions"],
-            skip_duplicates=True
-        )
-        
-        # 删除临时文件
-        if tmp_file_path and os.path.exists(tmp_file_path):
-            os.unlink(tmp_file_path)
-        
-        message = f"成功导入 {result['created_count']} 道题目"
-        if result['skipped_count'] > 0:
-            message += f"（跳过 {result['skipped_count']} 道重复题目）"
-        
-        return ImportResponse(
-            success=True,
-            message=message,
-            count=result['created_count']
-        )
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        error_detail = str(e)
-        error_traceback = traceback.format_exc()
-        
-        print(f"[导入错误] {error_detail}")
-        print(error_traceback)
-        
-        # 清理临时文件
-        if tmp_file_path and os.path.exists(tmp_file_path):
-            try:
-                os.unlink(tmp_file_path)
-            except:
-                pass
-        
-        # 提供更友好的错误信息
-        if "tesseract" in error_detail.lower():
-            raise HTTPException(status_code=500, detail="OCR引擎未安装，请先安装 Tesseract OCR")
-        elif "openai" in error_detail.lower() or "api" in error_detail.lower():
-            raise HTTPException(status_code=500, detail=f"AI API调用失败: {error_detail}")
-        else:
-            raise HTTPException(status_code=500, detail=f"导入失败: {error_detail}")
-
-
-@router.post("/text", response_model=ImportResponse)
-def import_from_text(
-    request: TextImportRequest,
-    db: Session = Depends(get_default_db)
-):
-    """
-    从文本导入题目（直接解析文本）
-    """
-    # 获取用户的 LLM 配置
-    llm_config = db.query(LLMModel).filter(LLMModel.user_id == request.user_id).first()
-    if not llm_config:
-        raise HTTPException(status_code=400, detail="请先配置 AI 模型")
-    
-    # 获取科目信息（验证用户权限）
-    subject = db.query(Subject).filter(
-        Subject.id == request.subject_id,
-        Subject.user_id == request.user_id
-    ).first()
-    if not subject:
-        raise HTTPException(status_code=404, detail="科目不存在或无权访问")
-    
-    try:
-        parser = create_ai_parser(
-            base_url=llm_config.base_url,
-            api_key=llm_config.api_key,
-            model_name=llm_config.model_name
-        )
-        
-        parsed_data = parser.parse_text_to_questions(request.text, subject.name)
-        if not parsed_data.get("questions"):
-            raise HTTPException(status_code=400, detail="AI未能从文本中解析出任何题目，请确认文本包含清晰的题号、选项和答案信息")
-        
-        result = QuestionService.batch_create_questions(
-            db=db,
-            user_id=request.user_id,
-            subject_id=request.subject_id,
-            questions_data=parsed_data["questions"],
-            skip_duplicates=True
-        )
-        
-        message = f"成功导入 {result['created_count']} 道题目"
-        if result['skipped_count'] > 0:
-            message += f"（跳过 {result['skipped_count']} 道重复题目）"
-        
-        return ImportResponse(
-            success=True,
-            message=message,
-            count=result['created_count']
-        )
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="导入失败，请稍后重试")
-
-
-# ============================================================
-# Agent 路由（新增）— 基于 LangChain + Unlimited-OCR
-# ============================================================
-
-# --- 辅助函数 ---
-
-def _validate_user_and_subject(db: Session, user_id: int, subject_id: int):
-    """验证用户 LLM 配置和科目权限，返回 (llm_config, subject)"""
-    llm_config = db.query(LLMModel).filter(
-        LLMModel.user_id == user_id
-    ).first()
-    if not llm_config:
-        raise HTTPException(status_code=400, detail="请先配置 AI 模型")
-    subject = db.query(Subject).filter(
-        Subject.id == subject_id,
-        Subject.user_id == user_id
-    ).first()
-    if not subject:
-        raise HTTPException(status_code=404, detail="科目不存在或无权访问")
-    return llm_config, subject
-
-
-def _save_temp_file(upload_file: UploadFile) -> str:
-    """保存上传文件到临时路径"""
-    with tempfile.NamedTemporaryFile(
-        delete=False, suffix=os.path.splitext(upload_file.filename)[1]
-    ) as tmp:
-        content = upload_file.file.read()
-        tmp.write(content)
-        return tmp.name
-
-
-def _cleanup_temp_file(file_path: str):
-    """清理临时文件"""
-    if file_path and os.path.exists(file_path):
+def _remove_temp(path: Optional[str]) -> None:
+    if path and os.path.exists(path):
         try:
-            os.unlink(file_path)
-        except Exception:
+            os.unlink(path)
+        except OSError:
             pass
 
 
-def _create_llm_from_config(llm_config: LLMModel):
-    """从 LLMModel 配置创建 LangChain ChatOpenAI 实例"""
-    from agents.base.llm_factory import create_llm
-    return create_llm(
-        base_url=llm_config.base_url,
-        api_key=llm_config.api_key,
-        model_name=llm_config.model_name,
-    )
+def _data_url(data: bytes) -> str:
+    import base64
+    mime = import_limits.detect_mime(data)
+    return f"data:{mime};base64," + base64.b64encode(data).decode("ascii")
 
 
-def _create_ocr_client():
-    """
-    从环境变量创建百度 Unlimited-OCR 客户端
-    需要 BAIDU_OCR_API_KEY 和 BAIDU_OCR_SECRET_KEY
-    :return: OCR 客户端实例，未配置则返回 None
-    """
-    api_key = os.environ.get("BAIDU_OCR_API_KEY", "")
-    secret_key = os.environ.get("BAIDU_OCR_SECRET_KEY", "")
-    if not api_key or not secret_key:
-        return None
-    from agents.base.ocr_client import UnlimitedOCRClient
-    return UnlimitedOCRClient(api_key, secret_key)
+def _payload(outcome) -> Dict[str, Any]:
+    data = outcome.as_dict()
+    stats = data["stats"]
+    message = f"成功解析 {len(data['questions'])} 道题目"
+    if stats["dropped"]:
+        message += f"，{stats['dropped']} 道题未能解析"
+    if stats["truncated"]:
+        message += "；部分批次输出被截断，建议缩小单次导入范围"
+    return {"code": 200, "message": message, "data": data}
 
 
-# --- Agent 路由 ---
+def _guard(call):
+    """统一把领域异常映射成状态码，保留可操作的提示文案。"""
+    try:
+        return call()
+    except import_limits.InputRejected as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RendererUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except LLMUnavailable as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-@router.post("/agent/file")
-async def agent_import_file(
-    user_id: int = Form(...),
-    subject_id: int = Form(...),
-    file: UploadFile = File(...),
-    db: Session = Depends(get_default_db)
-):
-    """
-    Agent 模式：文件导入
-    Unlimited-OCR 初步识别 → AI 校验 → 公式/图表复现 → 题目结构化
-    """
-    llm_config, subject = _validate_user_and_subject(db, user_id, subject_id)
-    tmp_file_path = _save_temp_file(file)
+
+# ----------------------------------------------------------------------
+# 预览（第一步：识别，不写库）
+# ----------------------------------------------------------------------
+
+@router.post("/preview/text")
+def preview_from_text(request: TextImportRequest,
+                      db: Session = Depends(get_default_db)):
+    """文本导入预览。"""
+    subject = _load_subject(db, request.user_id, request.subject_id)
+    agent = _agent(db, request.user_id, request.model_id, need_vision=False)
+
+    def work():
+        import_limits.check_text(request.text, field="文本")
+        return agent.import_text(request.text, subject.name)
+
+    return _payload(_guard(work))
+
+
+@router.post("/preview/image")
+def preview_from_image(user_id: int = Form(...),
+                       subject_id: int = Form(...),
+                       model_id: Optional[int] = Form(None),
+                       image: UploadFile = File(...),
+                       db: Session = Depends(get_default_db)):
+    """图片导入预览：整张图交给支持视觉的模型。"""
+    subject = _load_subject(db, user_id, subject_id)
+    agent = _agent(db, user_id, model_id, need_vision=True)
+    path = _save_temp(image)
+
+    def work():
+        prepared = import_limits.check_image(_read(path))
+        return agent.import_images([_data_url(prepared)], subject.name)
 
     try:
-        from agents.file_import_agent import FileImportAgent
-
-        llm = _create_llm_from_config(llm_config)
-        ocr_client = _create_ocr_client()
-
-        agent = FileImportAgent(llm=llm, ocr_client=ocr_client)
-        parsed_data = agent.invoke(tmp_file_path, subject.name)
-
-        _cleanup_temp_file(tmp_file_path)
-
-        if not parsed_data.get("questions"):
-            raise HTTPException(
-                status_code=400,
-                detail="Agent 未能从文件中解析出任何题目，请检查文件内容"
-            )
-
-        return {
-            "code": 200,
-            "message": f"成功解析 {len(parsed_data['questions'])} 道题目",
-            "data": {"questions": parsed_data["questions"]},
-        }
-    except HTTPException:
-        _cleanup_temp_file(tmp_file_path)
-        raise
-    except Exception as e:
-        _cleanup_temp_file(tmp_file_path)
-        raise HTTPException(status_code=500, detail="Agent 解析失败，请稍后重试")
+        return _payload(_guard(work))
+    finally:
+        _remove_temp(path)
 
 
-@router.post("/agent/image")
-async def agent_import_image(
-    user_id: int = Form(...),
-    subject_id: int = Form(...),
-    image: UploadFile = File(...),
-    db: Session = Depends(get_default_db)
-):
+@router.post("/preview/file")
+def preview_from_file(user_id: int = Form(...),
+                      subject_id: int = Form(...),
+                      model_id: Optional[int] = Form(None),
+                      file: UploadFile = File(...),
+                      db: Session = Depends(get_default_db)):
     """
-    Agent 模式：图片导入
-    Vision 模型 + Unlimited-OCR 双路并行 → AI 仲裁合并
+    文件导入预览。
+
+    .txt 走文本通道；.pdf/.docx/.doc 整页渲染成图片后走视觉通道。
+    这里刻意不做本地文本提取——理科卷的公式在 docx 里是 OLE 对象，
+    实测 python-docx 读到 0 个、pandoc 也只给出 .wmf 图片引用，
+    本地提取必然丢公式，把残句交给模型只会得到幻觉。
     """
-    llm_config, subject = _validate_user_and_subject(db, user_id, subject_id)
-    tmp_file_path = _save_temp_file(image)
+    subject = _load_subject(db, user_id, subject_id)
+    path = _save_temp(file)
+
+    def work():
+        data = _read(path)
+        ext = import_limits.check_document(file.filename, data)
+        if ext in TEXT_EXTENSIONS:
+            agent = _agent(db, user_id, model_id, need_vision=False)
+            return agent.import_text(import_limits.decode_text(data), subject.name)
+
+        agent = _agent(db, user_id, model_id, need_vision=True)
+        pages = render_to_images(path)
+        return agent.import_images([page.data_url() for page in pages],
+                                   subject.name)
 
     try:
-        from agents.image_import_agent import ImageImportAgent
-
-        llm = _create_llm_from_config(llm_config)
-        ocr_client = _create_ocr_client()
-
-        agent = ImageImportAgent(llm=llm, ocr_client=ocr_client)
-        parsed_data = agent.invoke(tmp_file_path, subject.name)
-
-        _cleanup_temp_file(tmp_file_path)
-
-        if not parsed_data.get("questions"):
-            raise HTTPException(
-                status_code=400,
-                detail="Agent 未能从图片中识别出题目，请确保图片清晰且包含完整题目"
-            )
-
-        return {
-            "code": 200,
-            "message": f"成功解析 {len(parsed_data['questions'])} 道题目",
-            "data": {"questions": parsed_data["questions"]},
-        }
-    except HTTPException:
-        _cleanup_temp_file(tmp_file_path)
-        raise
-    except Exception as e:
-        _cleanup_temp_file(tmp_file_path)
-        raise HTTPException(status_code=500, detail="Agent 解析失败，请稍后重试")
+        return _payload(_guard(work))
+    finally:
+        _remove_temp(path)
 
 
-@router.post("/agent/text")
-def agent_import_text(
-    request: TextImportRequest,
-    db: Session = Depends(get_default_db)
-):
-    """
-    Agent 模式：文本导入
-    智能拆分题目和答案，支持分段并发解析
-    """
-    llm_config, subject = _validate_user_and_subject(
-        db, request.user_id, request.subject_id
-    )
+# ----------------------------------------------------------------------
+# 确认入库（第二步）
+# ----------------------------------------------------------------------
 
-    try:
-        from agents.text_import_agent import TextImportAgent
-
-        llm = _create_llm_from_config(llm_config)
-        agent = TextImportAgent(llm=llm)
-        parsed_data = agent.invoke(request.text, subject.name)
-
-        if not parsed_data.get("questions"):
-            raise HTTPException(
-                status_code=400,
-                detail="Agent 未能从文本中解析出任何题目"
-            )
-
-        return {
-            "code": 200,
-            "message": f"成功解析 {len(parsed_data['questions'])} 道题目",
-            "data": {"questions": parsed_data["questions"]},
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Agent 解析失败，请稍后重试")
-
-
-@router.post("/agent/confirm")
-def agent_confirm_import(
-    request: ConfirmImportRequest,
-    db: Session = Depends(get_default_db)
-):
-    """
-    Agent 模式：确认导入题目（保存到数据库）
-    与现有 /confirm 路由逻辑一致，复用 QuestionService
-    """
-    # 验证科目权限
-    subject = db.query(Subject).filter(
-        Subject.id == request.subject_id,
-        Subject.user_id == request.user_id
-    ).first()
-    if not subject:
-        raise HTTPException(status_code=404, detail="科目不存在或无权访问")
+@router.post("/confirm")
+def confirm_import(request: ConfirmImportRequest,
+                   db: Session = Depends(get_default_db)):
+    """确认导入：把预览得到的题目写入库，含去重与题目资源。"""
+    _load_subject(db, request.user_id, request.subject_id)
+    if not request.questions:
+        raise HTTPException(status_code=400, detail="没有可导入的题目")
 
     try:
         result = QuestionService.batch_create_questions(
@@ -734,20 +216,39 @@ def agent_confirm_import(
             user_id=request.user_id,
             subject_id=request.subject_id,
             questions_data=request.questions,
-            skip_duplicates=True
+            skip_duplicates=True,
         )
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500,
+                            detail=f"保存失败：{type(exc).__name__}") from exc
 
-        message = f"成功导入 {result['created_count']} 道题目"
-        if result['skipped_count'] > 0:
-            message += f"（跳过 {result['skipped_count']} 道重复题目）"
+    message = f"成功导入 {result['created_count']} 道题目"
+    if result["skipped_count"]:
+        message += f"（跳过 {result['skipped_count']} 道重复题目）"
+    return {
+        "code": 200,
+        "message": message,
+        "data": {
+            "created_count": result["created_count"],
+            "skipped_count": result["skipped_count"],
+            "total_input": result["total_input"],
+        },
+    }
 
-        return {
-            "code": 200,
-            "message": message,
-            "data": {
-                "created_count": result['created_count'],
-                "skipped_count": result['skipped_count']
-            }
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="保存失败，请稍后重试")
+
+# ----------------------------------------------------------------------
+# 诊断
+# ----------------------------------------------------------------------
+
+@router.get("/limits")
+def import_limits_snapshot():
+    """当前生效的输入限制与渲染能力，供前端提示与运维核对。"""
+    from services.document_renderer import capabilities
+    return {
+        "code": 200,
+        "data": {
+            "limits": import_limits.summarize_limits(),
+            "renderer": capabilities(),
+        },
+    }

@@ -5,7 +5,7 @@
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from database.models import Question, Subject
+from database.models import Question, QuestionResource, Subject
 from utils.cache_manager import invalidate_question_related_cache
 import json
 
@@ -442,7 +442,8 @@ class QuestionService:
                 adjacent_question_type=adjacent_question_type
             )
             created_questions.append(question)
-        
+            _attach_resources(db, question, q_data.get("resources"))
+
         # 统一提交所有新创建的题目
         db.commit()
 
@@ -455,3 +456,31 @@ class QuestionService:
             "skipped_count": skipped_count,
             "total_input": len(questions_data)
         }
+
+
+def _attach_resources(db: Session, question: Question, resources: Any) -> None:
+    """
+    把导入识别出的公式/图形资源挂到题目上。
+
+    此前 AI 返回的 resources 字段在入库这一步被整个丢弃，question_resources
+    表只有手工调 /api/resources 才会写入。这里补上，导入的图与公式才留得住。
+    """
+    if not isinstance(resources, list) or not resources:
+        return
+
+    db.flush()
+    if question.id is None:
+        return
+
+    for order, item in enumerate(resources):
+        if not isinstance(item, dict):
+            continue
+        content = str(item.get("content") or "").strip()
+        if not content:
+            continue
+        db.add(QuestionResource(
+            question_id=question.id,
+            resource_type=str(item.get("type") or "other")[:50],
+            resource_content=content,
+            resource_order=order,
+        ))

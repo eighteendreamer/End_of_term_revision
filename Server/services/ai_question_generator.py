@@ -7,7 +7,7 @@ import logging
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 from database.models import Material, Question, MaterialQuestion, Subject, QuestionType, MaterialStatus
-from utils.ai_client import get_ai_client
+from services.llm_config_service import NoModelConfigured, build_client, get_user_llm
 from utils.Prompt import (
     GENERATE_SINGLE_CHOICE_FROM_MATERIAL,
     GENERATE_MULTIPLE_CHOICE_FROM_MATERIAL,
@@ -173,7 +173,10 @@ class AIQuestionGenerator:
         subject_name = subject.name if subject else "未知科目"
         
         # 3. 获取AI客户端
-        ai_client = get_ai_client(user_id, db)
+        try:
+            client = build_client(get_user_llm(db, user_id))
+        except NoModelConfigured as exc:
+            raise ValueError(str(exc)) from exc
         
         # 4. 分段处理文本
         text_chunks = AIQuestionGenerator.split_text(material.content_text)
@@ -216,7 +219,13 @@ class AIQuestionGenerator:
                     
                     # 调用AI生成
                     logger.info(f"生成 {q_type} 题目 {chunk_count} 道（第{i+1}/{len(text_chunks)}段）")
-                    response = ai_client.chat([{"role": "user", "content": prompt}])
+                    result = client.complete_json(
+                        SYSTEM_ROLE_GENERATE_FROM_MATERIAL, prompt,
+                        client.output_budget(chunk_count))
+                    if result.truncated:
+                        logger.warning("%s 第%d段输出被 max_tokens 截断，本段题目可能不全",
+                                       q_type, i + 1)
+                    response = result.text
                     
                     # 解析响应
                     questions = AIQuestionGenerator.parse_ai_response(response, q_type)

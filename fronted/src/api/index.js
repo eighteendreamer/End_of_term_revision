@@ -121,63 +121,48 @@ export const questionApi = {
 }
 
 // ==================== 题目导入 API ====================
+// 导入识别是长耗时请求：模型按批次串行调用，整卷可能需要几分钟。
+// 后端 LLM 客户端超时 120s、单次请求最多 300s，这里必须大于它，
+// 否则浏览器先 abort、服务端还在跑，用户重试就会重复计费。
+const PREVIEW_TIMEOUT = 300000
+
 export const importApi = {
-  // 预览：从文件解析（不保存）
-  previewFromFile: (userId, subjectId, file) => {
+  // 预览：从文件解析（不保存）。.txt 走文本通道，其余整页渲染后走视觉模型
+  previewFromFile: (userId, subjectId, file, modelId) => {
     const formData = new FormData()
     formData.append('user_id', userId)
     formData.append('subject_id', subjectId)
     formData.append('file', file)
+    if (modelId) formData.append('model_id', modelId)
     return request.post('/import/preview/file', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 180000
+      timeout: PREVIEW_TIMEOUT
     })
   },
 
   // 预览：从图片解析（不保存）
-  previewFromImage: (userId, subjectId, image) => {
+  previewFromImage: (userId, subjectId, image, modelId) => {
     const formData = new FormData()
     formData.append('user_id', userId)
     formData.append('subject_id', subjectId)
     formData.append('image', image)
+    if (modelId) formData.append('model_id', modelId)
     return request.post('/import/preview/image', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 180000
+      timeout: PREVIEW_TIMEOUT
     })
   },
 
   // 预览：从文本解析（不保存）
-  previewFromText: (data) => request.post('/import/preview/text', data),
+  previewFromText: (data) => request.post('/import/preview/text', data, {
+    timeout: PREVIEW_TIMEOUT
+  }),
 
   // 确认导入：保存题目到数据库
   confirmImport: (data) => request.post('/import/confirm', data),
 
-  // 旧接口（保留兼容）
-  fromFile: (userId, subjectId, file) => {
-    const formData = new FormData()
-    formData.append('user_id', userId)
-    formData.append('subject_id', subjectId)
-    formData.append('file', file)
-    return request.post('/import/file', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 180000  // 文件导入单独设置 180 秒超时
-    })
-  },
-
-  // 从图片导入
-  fromImage: (userId, subjectId, image) => {
-    const formData = new FormData()
-    formData.append('user_id', userId)
-    formData.append('subject_id', subjectId)
-    formData.append('image', image)
-    return request.post('/import/image', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 180000  // 图片导入单独设置 180 秒超时（AI 识别需要较长时间）
-    })
-  },
-
-  // 从文本导入
-  fromText: (data) => request.post('/import/text', data)
+  // 当前生效的输入限制与渲染能力
+  limits: () => request.get('/import/limits')
 }
 
 // ==================== 练习 API ====================
@@ -225,6 +210,7 @@ export const errorApi = {
 }
 
 // ==================== AI 模型配置 API ====================
+// 后端按 user_id 做归属校验，所有单条读写都必须带上 user_id。
 export const modelApi = {
   // 创建模型配置
   create: (data) => request.post('/models/', data),
@@ -233,13 +219,22 @@ export const modelApi = {
   list: (userId) => request.get('/models/', { params: { user_id: userId } }),
 
   // 获取单个模型配置
-  get: (modelId) => request.get(`/models/${modelId}`),
+  get: (modelId, userId) => request.get(`/models/${modelId}`, { params: { user_id: userId } }),
 
-  // 更新模型配置
-  update: (modelId, data) => request.put(`/models/${modelId}`, data),
+  // 更新模型配置（api_key 留空表示保持原值不变）
+  update: (modelId, userId, data) => request.put(`/models/${modelId}`, {
+    ...data, user_id: userId
+  }),
+
+  // 设为默认模型
+  setDefault: (modelId, userId) => request.post(`/models/${modelId}/default`, null, {
+    params: { user_id: userId }
+  }),
 
   // 删除模型配置
-  delete: (modelId) => request.delete(`/models/${modelId}`)
+  delete: (modelId, userId) => request.delete(`/models/${modelId}`, {
+    params: { user_id: userId }
+  })
 }
 
 // ==================== 题目资源 API ====================

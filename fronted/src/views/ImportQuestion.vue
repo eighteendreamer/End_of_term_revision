@@ -6,12 +6,20 @@
     <n-space vertical size="large" style="margin-top: 24px;">
       <!-- 选择科目 -->
       <n-card title="1. 选择科目">
-        <n-select
-          v-model:value="selectedSubject"
-          :options="subjectOptions"
-          placeholder="请选择科目"
-          :loading="loadingSubjects"
-        />
+        <n-space vertical :size="12">
+          <n-select
+            v-model:value="selectedSubject"
+            :options="subjectOptions"
+            placeholder="请选择科目"
+            :loading="loadingSubjects"
+          />
+          <n-select
+            v-model:value="selectedModel"
+            :options="modelOptions"
+            placeholder="使用默认模型"
+            :loading="loadingModels"
+          />
+        </n-space>
       </n-card>
 
       <!-- 导入方式选择 -->
@@ -104,13 +112,28 @@
       <!-- 解析进度 -->
       <n-card v-if="parsing" title="解析进度">
         <n-space vertical>
-          <n-progress type="line" :percentage="100" processing />
-          <n-text>正在使用 AI 解析题目，请稍候...</n-text>
-          <n-alert type="warning" style="margin-top: 12px;">
-            AI 识别可能需要 30-120 秒，请耐心等待，不要关闭页面
+          <n-progress type="line" :percentage="100" :show-indicator="false" processing />
+          <n-text>已耗时 {{ elapsed }} 秒，正在分批送模型解析…</n-text>
+          <n-alert type="info" style="margin-top: 12px;" :bordered="false">
+            文档按页、文本按题分组送入模型，单批最多 8 题；页数多时耗时较长，请勿关闭页面。
           </n-alert>
         </n-space>
       </n-card>
+
+      <!-- 解析结果统计：截断与丢题必须让用户看见，不能只报一个"成功" -->
+      <n-alert
+        v-if="importStats && parsedQuestions.length"
+        :type="importStats.truncated || importStats.dropped ? 'warning' : 'success'"
+        :bordered="false"
+      >
+        本次共送 {{ importStats.batches }} 批模型请求{{
+          importStats.retried_batches ? `（其中 ${importStats.retried_batches} 批因输出被截断已拆分重试）` : ''
+        }}，解析出 {{ parsedQuestions.length }} 道题目{{
+          importStats.dropped ? `，${importStats.dropped} 道题未能解析` : ''
+        }}。{{
+          importStats.truncated ? ' 仍有批次被输出上限截断，建议缩小单次导入范围后补录。' : ''
+        }}
+      </n-alert>
     </n-space>
 
     <!-- 题目预览对话框 -->
@@ -126,7 +149,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
-import { subjectApi, importApi } from '@/api'
+import { subjectApi, importApi, modelApi } from '@/api'
 import { DocumentTextOutline, ImageOutline } from '@vicons/ionicons5'
 import { useUserStore } from '@/stores/user'
 import { storeToRefs } from 'pinia'
@@ -150,6 +173,22 @@ const lastUploadedFile = ref(null)
 // 预览相关
 const showPreview = ref(false)
 const parsedQuestions = ref([])
+const importStats = ref(null)
+
+// 模型选择：留空则用后端的默认模型配置
+const models = ref([])
+const selectedModel = ref(null)
+const loadingModels = ref(false)
+
+// 耗时计时：单请求同步返回，拿不到逐批进度，就如实显示已耗时
+const elapsed = ref(0)
+let elapsedTimer = null
+const startElapsed = () => {
+  elapsed.value = 0
+  clearInterval(elapsedTimer)
+  elapsedTimer = setInterval(() => { elapsed.value += 1 }, 1000)
+}
+const stopElapsed = () => clearInterval(elapsedTimer)
 
 // 科目选项
 const subjectOptions = computed(() => {
@@ -158,6 +197,26 @@ const subjectOptions = computed(() => {
     value: s.id
   }))
 })
+
+// 模型选项：只有支持图片输入的模型才能用于图片/文档导入
+const modelOptions = computed(() => {
+  return models.value.map(m => ({
+    label: m.is_default ? `${m.display_name}（默认）` : m.display_name,
+    value: m.id,
+    supportsVision: m.supports_vision
+  }))
+})
+
+const loadModels = async () => {
+  loadingModels.value = true
+  try {
+    models.value = await modelApi.list(userId.value)
+  } catch (error) {
+    message.error(error.message || '加载模型配置失败')
+  } finally {
+    loadingModels.value = false
+  }
+}
 
 // 加载科目列表
 const loadSubjects = async () => {
@@ -199,15 +258,18 @@ const handleFileUpload = async ({ file, onFinish, onError }) => {
   }
 
   parsing.value = true
+  startElapsed()
   try {
     const response = await importApi.previewFromFile(
       userId.value,
       selectedSubject.value,
-      file.file
+      file.file,
+      selectedModel.value
     )
     
     const data = response.data || response
     parsedQuestions.value = data.questions || []
+    importStats.value = data.stats || null
     
     if (parsedQuestions.value.length === 0) {
       message.error('未能解析出题目')
@@ -223,6 +285,7 @@ const handleFileUpload = async ({ file, onFinish, onError }) => {
     message.error(error.message || '解析失败')
     onError()
   } finally {
+    stopElapsed()
     parsing.value = false
   }
 }
@@ -249,15 +312,18 @@ const handleImageUpload = async ({ file, onFinish, onError }) => {
   }
 
   parsing.value = true
+  startElapsed()
   try {
     const response = await importApi.previewFromImage(
       userId.value,
       selectedSubject.value,
-      file.file
+      file.file,
+      selectedModel.value
     )
     
     const data = response.data || response
     parsedQuestions.value = data.questions || []
+    importStats.value = data.stats || null
     
     if (parsedQuestions.value.length === 0) {
       message.error('未能解析出题目')
@@ -273,6 +339,7 @@ const handleImageUpload = async ({ file, onFinish, onError }) => {
     message.error(error.message || '解析失败')
     onError()
   } finally {
+    stopElapsed()
     parsing.value = false
   }
 }
@@ -290,15 +357,18 @@ const handleTextParse = async () => {
   }
 
   parsing.value = true
+  startElapsed()
   try {
     const response = await importApi.previewFromText({
       user_id: userId.value,
       subject_id: selectedSubject.value,
-      text: textContent.value
+      text: textContent.value,
+      model_id: selectedModel.value
     })
     
     const data = response.data || response
     parsedQuestions.value = data.questions || []
+    importStats.value = data.stats || null
     
     if (parsedQuestions.value.length === 0) {
       message.error('未能解析出题目')
@@ -310,6 +380,7 @@ const handleTextParse = async () => {
   } catch (error) {
     message.error(error.message || '解析失败')
   } finally {
+    stopElapsed()
     parsing.value = false
   }
 }
@@ -344,5 +415,6 @@ const handleCancelPreview = () => {
 
 onMounted(() => {
   loadSubjects()
+  loadModels()
 })
 </script>
