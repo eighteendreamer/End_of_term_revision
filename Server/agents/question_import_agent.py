@@ -167,11 +167,17 @@ class QuestionImportAgent:
         return outcome
 
     def _execute(self, plan: BatchPlan, subject: str, prompt_for: PromptFor,
-                 index: int, depth: int) -> Tuple[Dict[str, Any], BatchMeta]:
-        """跑一批；被输出上限截断且还能拆，就二分重试。"""
+                 index: int, depth: int,
+                 budget: Optional[int] = None) -> Tuple[Dict[str, Any], BatchMeta]:
+        """
+        跑一批；被输出上限截断就重试。
+
+        文本批次按题号二分（题数是精确已知量，拆小就能装下）；
+        整页图片批次拆不动，只能加码输出预算整页重问一次，且只重问一次。
+        """
         meta = BatchMeta(batches=1)
         prompt = prompt_for(plan, subject, index)
-        max_tokens = self.client.output_budget(plan.question_count)
+        max_tokens = budget or self.client.output_budget(plan.question_count)
 
         try:
             result = self.client.complete_json(
@@ -185,6 +191,20 @@ class QuestionImportAgent:
         parsed = parse_questions(result.text)
         cut = result.truncated or parsed.get("truncated", False)
         meta.truncated = cut
+
+        if (cut and budget is None and not plan.blocks
+                and depth < MAX_SPLIT_DEPTH):
+            bigger = self.client.budget_for_retry(max_tokens)
+            if bigger > max_tokens:
+                retry_parsed, retry_meta = self._execute(
+                    plan, subject, prompt_for, index, depth + 1, bigger)
+                meta.batches += retry_meta.batches
+                meta.retried = 1 + retry_meta.retried
+                if _better(retry_parsed, retry_meta, parsed):
+                    meta.errors.extend(retry_meta.errors)
+                    meta.missing += retry_meta.missing
+                    meta.truncated = retry_meta.truncated
+                    return retry_parsed, meta
 
         if not cut or depth >= MAX_SPLIT_DEPTH or not plan.blocks:
             _diagnose(plan, parsed, meta)
@@ -230,6 +250,13 @@ def _diagnose(plan: BatchPlan, parsed: Dict[str, Any], meta: BatchMeta) -> None:
             meta.errors.append(f"{plan.label} 送 {expected} 题只回来 {got} 题")
     elif got == 0:
         meta.errors.append(f"{plan.label} 未解析出任何题目")
+
+
+def _better(candidate: Dict[str, Any], candidate_meta: BatchMeta,
+            current: Dict[str, Any]) -> bool:
+    """重试值不值得采用：题更多，或题数相同但输出没被截断（字段更完整）。"""
+    got, now = len(candidate["questions"]), len(current["questions"])
+    return got > now or (got == now and not candidate_meta.truncated)
 
 
 def _merge_batch(base: Dict[str, Any], extra: Dict[str, Any]) -> Dict[str, Any]:

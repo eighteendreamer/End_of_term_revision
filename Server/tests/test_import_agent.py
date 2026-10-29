@@ -39,9 +39,13 @@ class FakeClient:
     script: List[Scripted]
     calls: List[Dict[str, Any]] = field(default_factory=list)
     budget: int = 2048
+    max_output_tokens: int = 8192
 
     def output_budget(self, question_count: int, per_question: int = 700) -> int:
         return self.budget
+
+    def budget_for_retry(self, budget: int) -> int:
+        return min(max(budget * 2, budget + 1024), self.max_output_tokens)
 
     def complete_json(self, system, user, max_tokens,
                       images: Optional[List[str]] = None) -> LLMResult:
@@ -180,6 +184,67 @@ class TestProgress(unittest.TestCase):
         self.assertTrue(seen)
         self.assertEqual(max(d for d, _t, _c in seen), seen[0][1])
         self.assertEqual(seen[-1][2], 2)
+
+
+class TestPageTruncationRetry(unittest.TestCase):
+    """
+    整页图片没有题号可拆，被输出上限截断时只能整页重试。
+
+    文件导入现在全部走这条路，一页密题（语文现代文阅读、英语阅读理解）
+    最容易撑爆预算；不重试就等于这一页永久缺题。
+    """
+
+    def test_truncated_page_is_retried_with_a_bigger_budget(self):
+        client = FakeClient([
+            Scripted(text='{"questions": [{"type": "single", "question": "1. 甲"',
+                     finish_reason="length"),
+            Scripted(text=_questions(["1. 甲", "2. 乙", "3. 丙"])),
+        ])
+        outcome = QuestionImportAgent(client).import_images(["data:image/png;base64,A"],
+                                                            "数学")
+        self.assertEqual(client.calls[1]["max_tokens"], 4096,
+                         "重试要把输出预算加大再问一次")
+        self.assertEqual(outcome.retried_batches, 1)
+        self.assertEqual(outcome.batches, 2)
+        self.assertEqual(outcome.count, 3)
+        self.assertFalse(outcome.truncated, "重试拿到了完整输出，就不该再报截断")
+
+    def test_same_count_prefers_the_untruncated_attempt(self):
+        client = FakeClient([
+            Scripted(text=_questions(["1. 甲", "2. 乙"]), finish_reason="length"),
+            Scripted(text=_questions(["1. 甲", "2. 乙"])),
+        ])
+        outcome = QuestionImportAgent(client).import_images(["a"], "数学")
+        self.assertEqual(outcome.count, 2)
+        self.assertFalse(outcome.truncated)
+
+    def test_keeps_first_result_when_retry_is_worse(self):
+        client = FakeClient([
+            Scripted(text=_questions(["1. 甲", "2. 乙"]), finish_reason="length"),
+            Scripted(text=_questions(["1. 甲"]), finish_reason="length"),
+        ])
+        outcome = QuestionImportAgent(client).import_images(["a"], "数学")
+        self.assertEqual(outcome.count, 2)
+        self.assertEqual(outcome.retried_batches, 1)
+        self.assertTrue(outcome.truncated)
+
+    def test_no_retry_when_budget_already_at_model_cap(self):
+        client = FakeClient([
+            Scripted(text='{"questions": [{"type": "single"', finish_reason="length"),
+        ], budget=8192, max_output_tokens=8192)
+        outcome = QuestionImportAgent(client).import_images(["a"], "数学")
+        self.assertEqual(len(client.calls), 1, "已到模型上限还重试只会白烧一次调用")
+        self.assertEqual(outcome.retried_batches, 0)
+        self.assertTrue(outcome.truncated)
+
+    def test_retry_only_happens_once_per_page(self):
+        client = FakeClient([
+            Scripted(text='{"questions": [{"type": "single"', finish_reason="length"),
+            Scripted(text='{"questions": [{"type": "single"', finish_reason="length"),
+        ])
+        outcome = QuestionImportAgent(client).import_images(["a"], "数学")
+        self.assertEqual(len(client.calls), 2, "重试要有界，不能对同一页无限加码")
+        self.assertTrue(outcome.truncated)
 
 
 if __name__ == "__main__":

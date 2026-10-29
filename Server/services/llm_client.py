@@ -81,6 +81,14 @@ class LLMClient:
         wanted = max(1024, question_count * per_question + 256)
         return int(min(wanted, self.max_output_tokens))
 
+    def budget_for_retry(self, budget: int) -> int:
+        """
+        整批被输出上限截断、又没有更小的拆法时，加码重问一次用的预算。
+
+        返回原值表示已经没有加码空间（已到模型输出上限），调用方应当放弃重试。
+        """
+        return int(min(max(budget * 2, budget + 1024), self.max_output_tokens))
+
     def complete_json(self, system: str, user: str, max_tokens: int,
                       images: Optional[List[str]] = None) -> LLMResult:
         """

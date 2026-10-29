@@ -129,7 +129,7 @@
         :bordered="false"
       >
         本次共送 {{ importStats.batches }} 批模型请求{{
-          importStats.retried_batches ? `（其中 ${importStats.retried_batches} 批因输出被截断已拆分重试）` : ''
+          importStats.retried_batches ? `（其中 ${importStats.retried_batches} 批因输出被截断已拆批或加码重问）` : ''
         }}，解析出 {{ parsedQuestions.length }} 道题目{{
           importStats.missing ? `，${importStats.missing} 道题模型没有吐回来` : ''
         }}{{

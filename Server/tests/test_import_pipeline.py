@@ -64,9 +64,13 @@ class EchoClient:
     truncate_after: Optional[int] = None
     calls: List[Dict[str, Any]] = field(default_factory=list)
     budget: int = 4096
+    max_output_tokens: int = 8192
 
     def output_budget(self, question_count: int, per_question: int = 700) -> int:
         return self.budget
+
+    def budget_for_retry(self, budget: int) -> int:
+        return min(max(budget * 2, budget + 1024), self.max_output_tokens)
 
     def complete_json(self, system, user, max_tokens,
                       images: Optional[List[str]] = None) -> LLMResult:

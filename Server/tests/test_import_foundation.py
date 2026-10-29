@@ -296,5 +296,99 @@ class TestImportLimits(unittest.TestCase):
         self.assertEqual(import_limits.check_image(buf.getvalue()), buf.getvalue())
 
 
+class TestRealSamplesFitLimits(unittest.TestCase):
+    """
+    阈值必须容得下用户真实导入的东西，否则限制本身就成了新的"导入不全"。
+
+    样本目录是用户自己放的（未纳入版本库），没有就跳过。断言的是"不被拒"，
+    顺带把"理科卷正文里根本没有公式"这条设计依据钉成可执行检查，
+    而不是只写注释。
+    """
+
+    MATERIALS = os.path.join(os.path.dirname(SERVER_ROOT), "测试用的材料")
+
+    def _files(self, *exts):
+        found = []
+        for root, _dirs, names in os.walk(self.MATERIALS):
+            for name in sorted(names):
+                if name.lower().endswith(exts):
+                    found.append(os.path.join(root, name))
+        return found
+
+    def _read(self, path: str) -> bytes:
+        with open(path, "rb") as handle:
+            return handle.read()
+
+    def test_screenshots_pass_image_checks_unchanged(self):
+        if not os.path.isdir(self.MATERIALS):
+            self.skipTest("缺少测试材料目录")
+        images = self._files(".png", ".jpg", ".jpeg", ".webp")
+        self.assertTrue(images, "材料目录下没有图片样本")
+        for path in images:
+            prepared = import_limits.check_image(self._read(path))
+            self.assertLessEqual(len(prepared), import_limits.MAX_IMAGE_BYTES)
+
+    def test_real_papers_pass_document_checks(self):
+        if not os.path.isdir(self.MATERIALS):
+            self.skipTest("缺少测试材料目录")
+        docs = self._files(".docx", ".pdf")
+        self.assertTrue(docs, "材料目录下没有文档样本")
+        for path in docs:
+            raw = self._read(path)
+            self.assertEqual(
+                import_limits.check_document(os.path.basename(path), raw),
+                os.path.splitext(path)[1].lower())
+
+    def test_real_paper_page_counts_stay_under_the_page_limit(self):
+        """页数上限若低于真实卷子的页数，文件导入会整份被拒。"""
+        if not os.path.isdir(self.MATERIALS):
+            self.skipTest("缺少测试材料目录")
+        import re
+        import zipfile
+        seen = 0
+        for path in self._files(".docx"):
+            try:
+                with zipfile.ZipFile(path) as zf:
+                    app = zf.read("docProps/app.xml").decode("utf-8", "ignore")
+            except (KeyError, zipfile.BadZipFile):
+                continue
+            match = re.search(r"<Pages>(\d+)</Pages>", app)
+            if not match:
+                continue
+            seen += 1
+            self.assertLessEqual(
+                int(match.group(1)), import_limits.MAX_PDF_PAGES,
+                f"{os.path.basename(path)} 有 {match.group(1)} 页，会被页数上限拒掉")
+        if not seen:
+            self.skipTest("样本里读不到页数信息")
+
+    def test_stem_papers_have_formulas_that_local_text_cannot_yield(self):
+        """
+        数学/化学/物理卷：公式是 OLE 对象，正文文本里没有。
+
+        这条就是"文件导入必须整页渲染送视觉模型"的证据；哪天不再成立
+        （比如试卷改用 OMML），才谈得上回到本地提取。
+        """
+        if not os.path.isdir(self.MATERIALS):
+            self.skipTest("缺少测试材料目录")
+        import re
+        import zipfile
+        checked = 0
+        for path in self._files(".docx"):
+            name = os.path.basename(path)
+            if not any(subj in name for subj in ("数学", "化学", "物理")):
+                continue
+            with zipfile.ZipFile(path) as zf:
+                doc = zf.read("word/document.xml").decode("utf-8", "ignore")
+            ole = len(re.findall(r"<w:object\b", doc))
+            body = re.sub(r"<[^>]+>", "", doc)
+            self.assertGreater(ole, 0, f"{name} 应当含 OLE 公式对象")
+            self.assertLess(len(body), import_limits.MAX_TEXT_CHARS)
+            # 正文只有几千字符却有上百个公式，说明公式不在文本里
+            self.assertLess(len(body), 8000, f"{name} 正文字符异常，需复核提取策略")
+            checked += 1
+        self.assertGreaterEqual(checked, 1, "材料里没有理科卷样本")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
