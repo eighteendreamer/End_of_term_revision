@@ -170,6 +170,9 @@ def validate_safe_input(value: str, field_name: str = "输入") -> str:
 # ============================================================
 _BLOCKED_URL_HOSTS = {"localhost", "metadata.google.internal"}
 
+# 模型端点单独一份黑名单：localhost 是自建推理服务的常态地址，不能拦。
+_MODEL_BLOCKED_HOSTS = {"169.254.169.254", "metadata.google.internal"}
+
 
 def is_safe_external_url(url: str) -> bool:
     """
@@ -216,8 +219,9 @@ def is_safe_model_base_url(url: str) -> bool:
     模型端点地址校验。
 
     与通用外链不同：自建推理服务（Ollama、vLLM、内网 one-api 网关）本来就跑在
-    回环或内网地址上，一律按 is_safe_external_url 拦会让用户根本存不进配置。
-    因此这里放开私有与回环，但链路本地、云元数据与保留地址仍然硬拦——
+    localhost、回环或内网地址上，照搬 is_safe_external_url 的主机黑名单会让用户
+    根本存不进配置——`http://localhost:11434/v1` 正是 Ollama 的默认地址。
+    因此这里放开本机与内网，但链路本地、云元数据与保留地址仍然硬拦：
     那类地址一旦被服务端去请求，等于把云主机凭证暴露出去。
     """
     if not isinstance(url, str) or not url.strip():
@@ -229,9 +233,7 @@ def is_safe_model_base_url(url: str) -> bool:
     if parsed.scheme not in ("http", "https"):
         return False
     host = (parsed.hostname or "").strip().lower()
-    if not host or host in _BLOCKED_URL_HOSTS:
-        return False
-    if host == "169.254.169.254":  # 云元数据服务
+    if not host or host in _MODEL_BLOCKED_HOSTS:
         return False
     try:
         ip = ipaddress.ip_address(host)

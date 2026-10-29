@@ -103,6 +103,8 @@ def _payload(outcome) -> Dict[str, Any]:
     data = outcome.as_dict()
     stats = data["stats"]
     message = f"成功解析 {len(data['questions'])} 道题目"
+    if stats["missing"]:
+        message += f"，{stats['missing']} 道题模型没有吐回来"
     if stats["dropped"]:
         message += f"，{stats['dropped']} 道题未能解析"
     if stats["truncated"]:
@@ -185,7 +187,11 @@ def preview_from_file(user_id: int = Form(...),
         ext = import_limits.check_document(file.filename, data)
         if ext in TEXT_EXTENSIONS:
             agent = _agent(db, user_id, model_id, need_vision=False)
-            return agent.import_text(import_limits.decode_text(data), subject.name)
+            # 字节数过不了 10MB 不代表字符数过得了上限：10MB 纯文本会被切成
+            # 上千个批次慢慢跑完，必须按字符数拦下来让用户拆分。
+            text = import_limits.check_text(import_limits.decode_text(data),
+                                            field="文件")
+            return agent.import_text(text, subject.name)
 
         agent = _agent(db, user_id, model_id, need_vision=True)
         pages = render_to_images(path)

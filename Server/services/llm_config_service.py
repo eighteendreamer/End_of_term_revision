@@ -54,7 +54,13 @@ def get_user_llm(db: Session, user_id: int, model_id: Optional[int] = None,
         config = configs[0]
 
     if need_vision and not config.supports_vision:
-        config = _pick_vision_capable(db, user_id) or config
+        vision = _pick_vision_capable(db, user_id)
+        if vision is None:
+            raise VisionRequired(
+                "图片导入和文档导入需要支持图片输入的模型：请到「AI 模型配置」"
+                "勾选「支持图片输入」，或添加一个视觉模型后重试。"
+                "把图片发给纯文本模型只会得到编造出来的题目。")
+        config = vision
     return config
 
 

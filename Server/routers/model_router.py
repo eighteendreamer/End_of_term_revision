@@ -162,8 +162,10 @@ def make_model_default(model_id: int,
                        user_id: int = Query(...),
                        db: Session = Depends(get_default_db)):
     """把该配置设为用户的默认模型。"""
+    record = _owned(db, model_id, user_id)
     set_default(db, user_id, model_id)
-    return _to_response(_owned(db, model_id, user_id))
+    db.refresh(record)
+    return _to_response(record)
 
 
 @router.delete("/{model_id}")

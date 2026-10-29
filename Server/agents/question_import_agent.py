@@ -52,6 +52,7 @@ class BatchMeta:
     batches: int = 0
     retried: int = 0
     truncated: bool = False
+    missing: int = 0
     errors: List[str] = field(default_factory=list)
 
 
@@ -63,6 +64,7 @@ class ImportOutcome:
     batches: int = 0
     retried_batches: int = 0
     dropped: int = 0
+    missing: int = 0
     truncated: bool = False
     repairs: List[str] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
@@ -80,6 +82,7 @@ class ImportOutcome:
                 "batches": self.batches,
                 "retried_batches": self.retried_batches,
                 "dropped": self.dropped,
+                "missing": self.missing,
                 "truncated": self.truncated,
                 "repairs": self.repairs,
                 "errors": self.errors,
@@ -155,6 +158,7 @@ class QuestionImportAgent:
             parsed, meta = entry
             outcome.batches += meta.batches
             outcome.retried_batches += meta.retried
+            outcome.missing += meta.missing
             outcome.errors.extend(meta.errors)
             outcome.truncated = outcome.truncated or meta.truncated
             _absorb(outcome, parsed)
@@ -175,6 +179,7 @@ class QuestionImportAgent:
         except Exception as exc:
             logger.warning("批次 %s 调用失败: %s", plan.label, exc)
             meta.errors.append(f"{plan.label}: {exc}")
+            meta.missing = plan.question_count if plan.blocks else 0
             return dict(_EMPTY_BATCH), meta
 
         parsed = parse_questions(result.text)
@@ -182,11 +187,13 @@ class QuestionImportAgent:
         meta.truncated = cut
 
         if not cut or depth >= MAX_SPLIT_DEPTH or not plan.blocks:
+            _diagnose(plan, parsed, meta)
             return parsed, meta
 
         halves = [BatchPlan(label=f"{plan.label}.{i + 1}", blocks=part.blocks)
                   for i, part in enumerate(split_batch(Batch(plan.blocks)))]
         if len(halves) < 2:
+            _diagnose(plan, parsed, meta)
             return parsed, meta
 
         meta.retried = 1
@@ -196,6 +203,7 @@ class QuestionImportAgent:
                                                  depth + 1)
             meta.batches += sub_meta.batches
             meta.retried += sub_meta.retried
+            meta.missing += sub_meta.missing
             meta.errors.extend(sub_meta.errors)
             combined = _merge_batch(combined, sub_parsed)
         combined["truncated"] = combined["truncated"] or parsed.get("truncated", False)
@@ -204,6 +212,24 @@ class QuestionImportAgent:
 
 def _text_prompt(plan: BatchPlan, subject: str, index: int) -> str:
     return TEXT_USER.format(subject=subject, text=Batch(plan.blocks).text)
+
+
+def _diagnose(plan: BatchPlan, parsed: Dict[str, Any], meta: BatchMeta) -> None:
+    """
+    把"送进去几题、回来几题"的差额变成可见信息。
+
+    文本批次题号是精确已知量，少回来就是少回来了，必须记账；图片批次读不到
+    题数，只能判断整页是否空手而归。不记这笔账，"入库题数 = 原文题数"
+    根本无从核对，模型静默少给题会被当成导入成功。
+    """
+    got = len(parsed["questions"])
+    if plan.blocks:
+        expected = plan.question_count
+        if got < expected:
+            meta.missing = expected - got
+            meta.errors.append(f"{plan.label} 送 {expected} 题只回来 {got} 题")
+    elif got == 0:
+        meta.errors.append(f"{plan.label} 未解析出任何题目")
 
 
 def _merge_batch(base: Dict[str, Any], extra: Dict[str, Any]) -> Dict[str, Any]:
