@@ -95,6 +95,9 @@
             />
           </n-form-item>
         </n-form>
+
+        <!-- 模型识别出的公式/图形资源；为空时整块不出现 -->
+        <QuestionResourceList :resources="question.resources" />
       </n-card>
     </n-space>
     </div>
@@ -121,6 +124,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { useMessage } from 'naive-ui'
+import QuestionResourceList from './QuestionResourceList.vue'
 
 const props = defineProps({
   show: {

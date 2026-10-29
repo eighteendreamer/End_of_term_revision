@@ -177,6 +177,9 @@
             <n-descriptions-item label="答案解析">
               <FormulaRenderer :content="currentQuestion.analysis" />  
             </n-descriptions-item>
+            <n-descriptions-item label="资源" v-if="currentResources.length">
+              <QuestionResourceList :resources="currentResources" />
+            </n-descriptions-item>
             <n-descriptions-item label="创建时间">
               {{ currentQuestion.created_at }}
             </n-descriptions-item>
@@ -190,7 +193,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
-import { questionApi, subjectApi, semesterApi } from '@/api'
+import { questionApi, subjectApi, semesterApi, resourceApi } from '@/api'
 import {
   SearchOutline,
   RefreshOutline,
@@ -201,6 +204,7 @@ import { useUserStore } from '@/stores/user'
 import { storeToRefs } from 'pinia'
 import FormulaRenderer from '@/components/FormulaRenderer.vue'
 import TableRenderer from '@/components/TableRenderer.vue'
+import QuestionResourceList from '@/components/QuestionResourceList.vue'
 
 const message = useMessage()
 const dialog = useDialog()
@@ -218,6 +222,7 @@ const currentPage = ref(1)
 const pageSize = ref(20)
 const showDetailModal = ref(false)
 const currentQuestion = ref(null)
+const currentResources = ref([])
 
 // 题型选项
 const typeOptions = [
@@ -434,9 +439,19 @@ const handleReset = () => {
 }
 
 // 查看题目详情
-const handleView = (question) => {
+const handleView = async (question) => {
   currentQuestion.value = question
+  currentResources.value = []
   showDetailModal.value = true
+  try {
+    const rows = await resourceApi.getByQuestion(question.id)
+    currentResources.value = (rows || []).map((row) => ({
+      type: row.resource_type,
+      content: row.resource_content
+    }))
+  } catch (error) {
+    message.warning(`题目资源加载失败：${error.message}`)
+  }
 }
 
 // 删除题目
