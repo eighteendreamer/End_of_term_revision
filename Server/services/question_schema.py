@@ -27,9 +27,6 @@ TYPE_ALIASES: Dict[str, str] = {
     "应用题": "major", "综合题": "major", "问答": "major",
 }
 
-# 题干里的图片/公式占位标记，由 docx 提取阶段写入，要求模型原样保留
-MARKER_RE = re.compile(r"\[\[IMG:(\d+)\]\]")
-
 _BLANK_RE = re.compile(r"_{3,}|（\s*）|\(\s+\)|\(\s*）")
 _OPTION_LABEL_RE = re.compile(r"^\s*([A-Za-z①-⑳])\s*[\.、．:：)]\s*(.*)$")
 _LETTER_RE = re.compile(r"[A-H]")
@@ -308,35 +305,3 @@ def parse_questions(raw_text: str) -> Dict[str, Any]:
     if not accepted and result["parse_mode"] == "full":
         result["parse_mode"] = "empty"
     return result
-
-
-def attach_resources(questions: List[Dict[str, Any]], resources: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    把 docx 提取阶段的图片资源按 [[IMG:n]] 标记挂回各题。
-
-    模型可能吞掉标记，因此标记丢失只记录、不静默丢图：未挂上的资源按题序回填到
-    题干仍含公式痕迹的题目上，剩余部分作为 unattached 返回给前端提示。
-    """
-    by_index: Dict[int, Dict[str, Any]] = {}
-    for res in resources:
-        by_index[int(res["index"])] = res
-
-    used = set()
-    for question in questions:
-        mounted = []
-        for blob in (question["question"], question["analysis"], *question["options"]):
-            for num in MARKER_RE.findall(str(blob)):
-                res = by_index.get(int(num))
-                if res and int(num) not in used:
-                    used.add(int(num))
-                    mounted.append(res)
-        question["resources"] = (question.get("resources") or []) + [
-            {"type": r["type"], "content": r["content"], "description": r.get("description", "")}
-            for r in mounted
-        ]
-
-    unattached = [res for idx, res in by_index.items() if idx not in used]
-    return {
-        "mounted": len(used),
-        "unattached": unattached,
-    }

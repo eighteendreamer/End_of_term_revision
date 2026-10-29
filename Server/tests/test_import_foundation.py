@@ -191,21 +191,6 @@ class TestQuestionSchema(unittest.TestCase):
         self.assertTrue(result.get("error"))
         self.assertEqual(result["questions"], [])
 
-    def test_attach_resources_by_marker(self):
-        questions = [{
-            "type": "fill", "question": "求 $x$ 的值 [[IMG:1]]，则 [[IMG:2]]",
-            "options": [], "answer": "1", "analysis": "a", "resources": [],
-        }]
-        resources = [
-            {"index": 1, "type": "formula_image", "content": "u1", "description": ""},
-            {"index": 2, "type": "formula_image", "content": "u2", "description": ""},
-            {"index": 3, "type": "image", "content": "u3", "description": ""},
-        ]
-        outcome = question_schema.attach_resources(questions, resources)
-        self.assertEqual(outcome["mounted"], 2)
-        self.assertEqual({r["content"] for r in questions[0]["resources"]}, {"u1", "u2"})
-        self.assertEqual([r["index"] for r in outcome["unattached"]], [3])
-
 
 class TestChunker(unittest.TestCase):
 
