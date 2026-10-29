@@ -7,6 +7,9 @@
 --   * 本脚本只 ALTER，不 DROP，可安全作用于已有业务库。
 --   * 不要拿 database/end_of_term_revision.sql 代替本脚本——那份初始化 SQL
 --     含 DROP TABLE，导入会清掉现有题库。
+--   * 初始化 SQL 的 CREATE TABLE `llm_models` 已同步补上这五列，供全新安装使用；
+--     两处列名/类型/默认值由 Server/tests/test_llm_schema_contract.py 钉死，
+--     后续再加能力列必须同时改模型、本脚本和初始化 SQL，否则测试会红。
 --   * MySQL 的 ADD COLUMN 不幂等：重复执行会报 "Duplicate column name"，
 --     属正常，说明该列已存在。执行前请先跑下面的"执行前检查"。
 -- ============================================================================
