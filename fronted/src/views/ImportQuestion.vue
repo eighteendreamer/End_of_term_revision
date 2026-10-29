@@ -125,12 +125,14 @@
       <!-- 解析结果统计：截断与丢题必须让用户看见，不能只报一个"成功" -->
       <n-alert
         v-if="importStats && parsedQuestions.length"
-        :type="importStats.truncated || importStats.dropped ? 'warning' : 'success'"
+        :type="importStats.truncated || importStats.dropped || importStats.missing ? 'warning' : 'success'"
         :bordered="false"
       >
         本次共送 {{ importStats.batches }} 批模型请求{{
           importStats.retried_batches ? `（其中 ${importStats.retried_batches} 批因输出被截断已拆分重试）` : ''
         }}，解析出 {{ parsedQuestions.length }} 道题目{{
+          importStats.missing ? `，${importStats.missing} 道题模型没有吐回来` : ''
+        }}{{
           importStats.dropped ? `，${importStats.dropped} 道题未能解析` : ''
         }}。{{
           importStats.truncated ? ' 仍有批次被输出上限截断，建议缩小单次导入范围后补录。' : ''
