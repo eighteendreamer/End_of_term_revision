@@ -25,6 +25,12 @@ RATE_LIMIT_ATTEMPTS = 5
 # 中文约 1 字 0.6~1 token，英文约 4 字符 1 token；取保守值再留 15% 余量
 _TOKEN_SAFETY = 1.15
 
+# 单题输出的经验值：一批塞几题、给多少 max_tokens 都由它推出来
+PER_QUESTION_OUTPUT_TOKENS = 700
+# 批大小的上下限。太小会把请求数放大（更容易撞 429），太大一旦截断要拆更多次
+BATCH_SIZE_FLOOR = 4
+BATCH_SIZE_CEILING = 16
+
 
 def estimate_tokens(text: str) -> int:
     """无需依赖 tokenizer 的保守估算，用于分块装箱。"""
@@ -87,10 +93,22 @@ class LLMClient:
         self._client = OpenAI(base_url=base_url, api_key=api_key, timeout=timeout,
                               max_retries=0)
 
-    def output_budget(self, question_count: int, per_question: int = 700) -> int:
+    def output_budget(self, question_count: int,
+                      per_question: int = PER_QUESTION_OUTPUT_TOKENS) -> int:
         """按本批题量算输出预算，并夹在模型自身上限内。"""
         wanted = max(1024, question_count * per_question + 256)
         return int(min(wanted, self.max_output_tokens))
+
+    @property
+    def questions_per_batch(self) -> int:
+        """
+        一批塞几题由模型自己的输出上限决定，不写死。
+
+        上限 8192 → 11 题一批；200000 → 封顶 16 题。端点报得越大，批越大、
+        请求数越少，直接减轻限流压力；报得小就自动缩批，不靠人记着改常量。
+        """
+        fit = self.max_output_tokens // PER_QUESTION_OUTPUT_TOKENS
+        return int(max(BATCH_SIZE_FLOOR, min(fit, BATCH_SIZE_CEILING)))
 
     def budget_for_retry(self, budget: int) -> int:
         """

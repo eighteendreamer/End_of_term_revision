@@ -9,9 +9,9 @@ import re
 from dataclasses import dataclass, field
 from typing import List, Optional, Sequence
 
-from services.llm_client import estimate_tokens
+from services.llm_client import BATCH_SIZE_CEILING, estimate_tokens
 
-MAX_QUESTIONS_PER_BATCH = 8
+MAX_QUESTIONS_PER_BATCH = BATCH_SIZE_CEILING
 MAX_BATCH_INPUT_TOKENS = 6000
 MIN_QUESTIONS_PER_BATCH = 1
 

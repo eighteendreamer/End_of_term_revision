@@ -69,7 +69,11 @@
               <n-tag :type="model.supports_json_mode ? 'info' : 'default'" size="small">
                 JSON模式{{ model.supports_json_mode ? '·支持' : '·自动降级' }}
               </n-tag>
-              <n-tag size="small">输出上限 {{ model.max_output_tokens }}</n-tag>
+              <n-tag size="small">
+                输出上限 {{ model.max_output_tokens }}{{
+                  model.output_limit_source === 'provider' ? '（端点返回）' : '（手填，端点未报）'
+                }}
+              </n-tag>
             </n-space>
             <div>
               <n-text depth="3" style="font-size: 13px;">创建时间: {{ model.created_at }}</n-text>
@@ -120,13 +124,14 @@
           <div style="width: 100%;">
             <n-input-number
               v-model:value="formData.max_output_tokens"
-              :min="256"
-              :max="200000"
+              :min="outputLimits.min_output_tokens"
+              :max="outputLimits.max_output_tokens_bound"
               :step="512"
               style="width: 100%;"
             />
             <n-text depth="3" style="font-size: 12px;">
-              单次调用允许模型吐多少。太小会把题目的解析截断，太大会浪费配额
+              保存时会自动向该端点探测这个模型的真实上限：探到就以端点为准，探不到沿用这里填的值。
+              一批塞几题、每批给多少输出预算都由它推出来，填准比填大重要。
             </n-text>
           </div>
         </n-form-item>
@@ -160,6 +165,8 @@ const { userId } = storeToRefs(userStore)
 const models = ref([])
 
 const formRef = ref(null)
+// 默认值与取值范围来自 /api/models/defaults，前端不抄一份字面量
+const outputLimits = ref({})
 
 const emptyForm = () => ({
   id: null,
@@ -169,7 +176,7 @@ const emptyForm = () => ({
   api_key: '',
   supports_vision: false,
   supports_json_mode: true,
-  max_output_tokens: 8192
+  max_output_tokens: outputLimits.value.max_output_tokens ?? null
 })
 
 const formData = ref(emptyForm())
@@ -287,7 +294,13 @@ const deleteModel = (modelId) => {
   })
 }
 
-onMounted(() => {
+onMounted(async () => {
+  try {
+    const limits = await modelApi.defaults()
+    outputLimits.value = limits.data || {}
+  } catch (error) {
+    message.warning(`模型输出上限的取值范围加载失败：${error.message}`)
+  }
   loadModels()
 })
 </script>

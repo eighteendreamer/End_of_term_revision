@@ -118,7 +118,9 @@ class QuestionImportAgent:
         if not blocks:
             raise ValueError("没有从文本里识别出任何题号或段落，请确认内容是试题")
         plans = [BatchPlan(label=f"batch{i + 1}", blocks=batch.blocks)
-                 for i, batch in enumerate(pack_batches(blocks))]
+                 for i, batch in enumerate(
+                     pack_batches(blocks,
+                                  max_questions=self.client.questions_per_batch))]
         return self._run(plans, subject, _text_prompt)
 
     def import_images(self, data_urls: List[str], subject: str) -> ImportOutcome:

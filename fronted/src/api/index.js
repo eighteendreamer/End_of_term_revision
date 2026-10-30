@@ -212,6 +212,9 @@ export const errorApi = {
 // ==================== AI 模型配置 API ====================
 // 后端按 user_id 做归属校验，所有单条读写都必须带上 user_id。
 export const modelApi = {
+  // 输出上限的默认值与取值范围（由后端常量下发，前端不抄字面量）
+  defaults: () => request.get('/models/defaults'),
+
   // 创建模型配置
   create: (data) => request.post('/models/', data),
 

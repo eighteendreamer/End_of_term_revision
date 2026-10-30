@@ -40,6 +40,8 @@ class FakeClient:
     calls: List[Dict[str, Any]] = field(default_factory=list)
     budget: int = 2048
     max_output_tokens: int = 8192
+    # 真实客户端按模型上限动态算批大小；假客户端把它钉死，用例语义才稳定
+    questions_per_batch: int = 8
 
     def output_budget(self, question_count: int, per_question: int = 700) -> int:
         return self.budget
