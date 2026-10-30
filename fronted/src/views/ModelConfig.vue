@@ -69,11 +69,7 @@
               <n-tag :type="model.supports_json_mode ? 'info' : 'default'" size="small">
                 JSON模式{{ model.supports_json_mode ? '·支持' : '·自动降级' }}
               </n-tag>
-              <n-tag size="small">
-                输出上限 {{ model.max_output_tokens }}{{
-                  model.output_limit_source === 'provider' ? '（端点返回）' : '（手填，端点未报）'
-                }}
-              </n-tag>
+              <n-tag size="small">输出上限 {{ model.max_output_tokens }}</n-tag>
             </n-space>
             <div>
               <n-text depth="3" style="font-size: 13px;">创建时间: {{ model.created_at }}</n-text>
@@ -130,8 +126,8 @@
               style="width: 100%;"
             />
             <n-text depth="3" style="font-size: 12px;">
-              保存时会自动向该端点探测这个模型的真实上限：探到就以端点为准，探不到沿用这里填的值。
-              一批塞几题、每批给多少输出预算都由它推出来，填准比填大重要。
+              这是天花板，不是每批都发这么多：一批实际发送量按题数算（16 题约 11456）。
+              它同时决定一批塞几题与被截断后能加码到多少，填太小会让长解析被砍断。
             </n-text>
           </div>
         </n-form-item>

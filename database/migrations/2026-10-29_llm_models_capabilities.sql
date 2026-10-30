@@ -10,6 +10,9 @@
 --   * 初始化 SQL 的 CREATE TABLE `llm_models` 已同步补上这五列，供全新安装使用；
 --     两处列名/类型/默认值由 Server/tests/test_llm_schema_contract.py 钉死，
 --     后续再加能力列必须同时改模型、本脚本和初始化 SQL，否则测试会红。
+--   * max_output_tokens 默认 128000：实测所用两家 OpenAI 兼容网关都接受
+--     max_tokens 到 131072，且都不在 /models 里报自己的上限，所以统一给天花板。
+--     它只是上限——每批实际发送量按题数算（16 题约 11456），填大不额外计费。
 --   * MySQL 的 ADD COLUMN 不幂等：重复执行会报 "Duplicate column name"，
 --     属正常，说明该列已存在。执行前请先跑下面的"执行前检查"。
 -- ============================================================================
@@ -26,7 +29,7 @@ ALTER TABLE `llm_models`
   ADD COLUMN `is_default`         tinyint(1)   NOT NULL DEFAULT 0 COMMENT '是否为该用户的默认模型' AFTER `display_name`,
   ADD COLUMN `supports_vision`    tinyint(1)   NOT NULL DEFAULT 0 COMMENT '是否接受图片输入'       AFTER `is_default`,
   ADD COLUMN `supports_json_mode` tinyint(1)   NOT NULL DEFAULT 1 COMMENT '是否支持 response_format=json_object' AFTER `supports_vision`,
-  ADD COLUMN `max_output_tokens`  int          NOT NULL DEFAULT 8192 COMMENT '单次最大输出 token 预算' AFTER `supports_json_mode`;
+  ADD COLUMN `max_output_tokens`  int          NOT NULL DEFAULT 128000 COMMENT '单次最大输出 token 预算' AFTER `supports_json_mode`;
 
 -- 每个用户把最早的一条设为默认，保证迁移后 get_user_llm 的选取结果
 -- 与迁移前 .first() 的实际行为一致，不改变现有用户的既有表现。

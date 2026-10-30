@@ -19,8 +19,7 @@ from database.models import LLMModel
 from services.llm_config_service import (DEFAULT_MAX_OUTPUT_TOKENS,
                                          MAX_OUTPUT_TOKENS_BOUND,
                                          MIN_OUTPUT_TOKENS, list_models,
-                                         mask_api_key, probe_max_output_tokens,
-                                         set_default)
+                                         mask_api_key, set_default)
 from utils.security import validate_model_base_url
 
 router = APIRouter(prefix="/api/models", tags=["模型配置"])
@@ -74,12 +73,10 @@ class ModelResponse(BaseModel):
     supports_vision: bool
     supports_json_mode: bool
     max_output_tokens: int
-    # provider = 端点自己报的；user = 端点没报，沿用了你填的值
-    output_limit_source: str = "user"
     created_at: str
 
 
-def _to_response(model: LLMModel, source: str = "user") -> ModelResponse:
+def _to_response(model: LLMModel) -> ModelResponse:
     return ModelResponse(
         id=model.id,
         user_id=model.user_id,
@@ -91,21 +88,8 @@ def _to_response(model: LLMModel, source: str = "user") -> ModelResponse:
         supports_vision=bool(model.supports_vision),
         supports_json_mode=bool(model.supports_json_mode),
         max_output_tokens=model.max_output_tokens or DEFAULT_MAX_OUTPUT_TOKENS,
-        output_limit_source=source,
         created_at=model.created_at.strftime("%Y-%m-%d %H:%M:%S") if model.created_at else "",
     )
-
-
-def _apply_output_limit(record: LLMModel, requested: int) -> str:
-    """
-    保存时问一次端点：它肯报这个模型的上限就用它的，否则老实沿用手填值。
-
-    批大小和每批 max_tokens 都由这个值推出来，所以填准比填大更重要。
-    """
-    probed = probe_max_output_tokens(record.base_url, record.api_key,
-                                     record.model_name)
-    record.max_output_tokens = probed or requested
-    return "provider" if probed else "user"
 
 
 def _owned(db: Session, model_id: int, user_id: int) -> LLMModel:
@@ -139,11 +123,10 @@ def create_model_config(model: ModelCreate, db: Session = Depends(get_default_db
         supports_json_mode=model.supports_json_mode,
         max_output_tokens=model.max_output_tokens,
     )
-    source = _apply_output_limit(record, model.max_output_tokens)
     db.add(record)
     db.commit()
     db.refresh(record)
-    return _to_response(record, source)
+    return _to_response(record)
 
 
 @router.get("/defaults")
@@ -186,11 +169,10 @@ def update_model_config(model_id: int,
     record.max_output_tokens = model_update.max_output_tokens
     if model_update.api_key:
         record.api_key = model_update.api_key
-    source = _apply_output_limit(record, model_update.max_output_tokens)
 
     db.commit()
     db.refresh(record)
-    return _to_response(record, source)
+    return _to_response(record)
 
 
 @router.post("/{model_id}/default", response_model=ModelResponse)

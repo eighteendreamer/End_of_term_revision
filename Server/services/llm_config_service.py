@@ -7,72 +7,20 @@ user_id==...).first()`，无排序、无默认概念：用户新增一条配置�
 旧的那条，表现为"换了模型没生效"。这里收成一个函数，选谁、能不能用视觉，
 都在一处判定。
 """
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
-import requests
 from sqlalchemy.orm import Session
 
 from database.models import LLMModel
 from services.llm_client import LLMClient
 
-# 输出预算的取值范围与兜底默认值，全仓只在这里定义一次；
-# 建表/迁移 SQL 的 DEFAULT 与之对齐由 test_llm_schema_contract 钉住
-DEFAULT_MAX_OUTPUT_TOKENS = 8192
+# 输出上限全仓只在这里定义一次；建表/迁移 SQL 的 DEFAULT 与之对齐，由
+# test_llm_schema_contract 钉住。实测用户的两家网关（agnes-ai、layso）都接受
+# max_tokens 到 131072，且都不在 /models 里报自己的上限，所以统一按 128k 配：
+# 它只是天花板，每批实际发送量仍按题数算（16 题约 11456），不会因为填大而多花钱。
+DEFAULT_MAX_OUTPUT_TOKENS = 128_000
 MIN_OUTPUT_TOKENS = 256
-MAX_OUTPUT_TOKENS_BOUND = 200000
-PROBE_TIMEOUT = 10.0
-# 各家 OpenAI 兼容端字段名不统一，按优先级逐个试；都没有就判定"端点没说"
-OUTPUT_LIMIT_FIELDS = ("max_output_tokens", "max_completion_tokens")
-
-
-def _http_get(url: str, headers: Dict[str, str]):
-    return requests.get(url, headers=headers, timeout=PROBE_TIMEOUT)
-
-
-def _limit_from(payload: Any) -> Optional[int]:
-    if not isinstance(payload, dict) or payload.get("error"):
-        return None
-    limits = payload.get("limits")
-    for key in OUTPUT_LIMIT_FIELDS:
-        value = payload.get(key)
-        if isinstance(value, int) and value > 0:
-            return min(max(value, MIN_OUTPUT_TOKENS), MAX_OUTPUT_TOKENS_BOUND)
-    if isinstance(limits, dict) and isinstance(limits.get("output"), int):
-        value = limits["output"]
-        if value > 0:
-            return min(max(value, MIN_OUTPUT_TOKENS), MAX_OUTPUT_TOKENS_BOUND)
-    return None
-
-
-def probe_max_output_tokens(base_url: str, api_key: str,
-                            model_name: str) -> Optional[int]:
-    """
-    问端点要"这个模型一次最多能吐多少 token"。
-
-    拿不到就返回 None，由调用方沿用手填值并如实标注来源。不猜：猜大了请求被
-    400 拒掉，猜小了整批被静默截断，两种都比"不知道"更糟。
-    注意有网关会用 HTTP 200 返回 error 体，所以只看 JSON 内容不看状态码不够。
-    """
-    headers = {"Authorization": "Bearer " + (api_key or "")}
-    root = (base_url or "").rstrip("/")
-    single = "%s/models/%s" % (root, model_name)
-    try:
-        response = _http_get(single, headers)
-        if response.status_code == 200:
-            direct = _limit_from(response.json())
-            if direct:
-                return direct
-        listing = _http_get("%s/models" % root, headers)
-        if listing.status_code != 200:
-            return None
-        body = listing.json()
-        items = body.get("data") if isinstance(body, dict) else None
-        for item in items or []:
-            if isinstance(item, dict) and item.get("id") == model_name:
-                return _limit_from(item)
-    except Exception:
-        return None
-    return None
+MAX_OUTPUT_TOKENS_BOUND = 200_000
 
 
 class NoModelConfigured(Exception):

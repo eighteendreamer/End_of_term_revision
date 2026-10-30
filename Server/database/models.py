@@ -147,7 +147,7 @@ class LLMModel(Base):
     is_default = Column(Boolean, nullable=False, server_default=text("0"), comment='是否为该用户的默认模型')
     supports_vision = Column(Boolean, nullable=False, server_default=text("0"), comment='是否接受图片输入')
     supports_json_mode = Column(Boolean, nullable=False, server_default=text("1"), comment='是否支持 response_format=json_object')
-    max_output_tokens = Column(Integer, nullable=False, server_default=text("8192"), comment='单次最大输出 token 预算')
+    max_output_tokens = Column(Integer, nullable=False, server_default=text("128000"), comment='单次最大输出 token 预算')
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp(), comment='创建时间')
 
 

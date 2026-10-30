@@ -169,7 +169,7 @@ CREATE TABLE `llm_models`  (
   `is_default` tinyint(1) NOT NULL DEFAULT 0 COMMENT '是否为该用户的默认模型',
   `supports_vision` tinyint(1) NOT NULL DEFAULT 0 COMMENT '是否接受图片输入',
   `supports_json_mode` tinyint(1) NOT NULL DEFAULT 1 COMMENT '是否支持 response_format=json_object',
-  `max_output_tokens` int NOT NULL DEFAULT 8192 COMMENT '单次最大输出 token 预算',
+  `max_output_tokens` int NOT NULL DEFAULT 128000 COMMENT '单次最大输出 token 预算',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `user_id`(`user_id` ASC) USING BTREE,
