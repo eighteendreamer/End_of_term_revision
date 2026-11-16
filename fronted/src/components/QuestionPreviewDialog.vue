@@ -68,11 +68,9 @@
                 v-for="(opt, key) in question.options"
                 :key="key"
                 v-model:value="question.options[key]"
-                :placeholder="`选项 ${key}`"
+                :placeholder="`选项 ${key + 1}`"
                 size="small"
-              >
-                <template #prefix>{{ key }}.</template>
-              </n-input>
+              />
             </n-space>
           </n-form-item>
 

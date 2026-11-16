@@ -369,5 +369,82 @@ class TestNumberFieldContract(unittest.TestCase):
         self.assertNotIn("number", kept)
 
 
+class TestFinalAudit(unittest.TestCase):
+    """
+    返回前端前的拦截复查：代码查得出的问题只修有问题的题。
+
+    第一层拦截是纯代码（答案与选项对不上、判断题答案、解析占位符、
+    题干选项混入答案字样等）；有发现才送模型修一轮，且只送有问题的题；
+    第二层拦截仍是纯代码，修不好的写进疑点返回，不再追加调用。
+    """
+
+    def _payload(self, rows):
+        return json.dumps({"questions": rows}, ensure_ascii=False)
+
+    def _row(self, number, answer="C", analysis="因为主频决定运算速度。",
+             question="第%s题题干"):
+        return {"no": number, "type": "single",
+                "question": question % number,
+                "options": ["A. 甲", "B. 乙", "C. 丙", "D. 丁"],
+                "answer": answer, "analysis": analysis}
+
+    def test_wrong_answer_and_missing_analysis_are_repaired(self):
+        client = FakeClient([
+            Scripted(text=self._payload([
+                self._row("1", answer="E", analysis="（原文未提供解析，待补充）")])),
+            Scripted(text=self._payload([
+                self._row("1", answer="C", analysis="主频决定运算速度。")])),
+        ])
+        outcome = QuestionImportAgent(client).import_text(_numbered_text(1), "计算机")
+        self.assertEqual(len(client.calls), 2, "有发现才修，修一轮")
+        self.assertEqual(outcome.questions[0]["answer"], "C")
+        self.assertEqual(outcome.questions[0]["analysis"], "主频决定运算速度。")
+        self.assertTrue(any("复查修正" in r for r in outcome.repairs))
+        joined_issues = "；".join(
+            item for items in outcome.issues.values() for item in items)
+        self.assertNotIn("答案与选项对不上", joined_issues)
+
+    def test_repair_round_only_sends_the_flagged_question(self):
+        client = FakeClient([
+            Scripted(text=self._payload([
+                self._row("1", answer="A"),
+                self._row("2", answer="", analysis=""),
+            ])),
+            Scripted(text=self._payload([
+                self._row("2", answer="B", analysis="扫描仪是输入设备。")])),
+        ])
+        QuestionImportAgent(client).import_text(_numbered_text(2), "计算机")
+        asked = client.calls[1]["user"]
+        self.assertIn("第2题题干", asked)
+        self.assertNotIn("第1题题干", asked, "没问题的题不送")
+
+    def test_still_broken_after_repair_is_flagged_without_another_call(self):
+        client = FakeClient([
+            Scripted(text=self._payload([self._row("1", answer="E")])),
+            Scripted(text=self._payload([self._row("1", answer="E")])),
+        ])
+        outcome = QuestionImportAgent(client).import_text(_numbered_text(1), "计算机")
+        self.assertEqual(len(client.calls), 2, "第二层拦截不再调模型")
+        joined_issues = "；".join(
+            item for items in outcome.issues.values() for item in items)
+        self.assertIn("答案与选项对不上", joined_issues)
+
+    def test_audit_catches_each_finding_kind(self):
+        from agents.question_import_agent import _audit_question
+
+        self.assertIn("答案缺失", _audit_question(
+            {"type": "single", "options": ["A. 甲", "B. 乙"], "answer": ""}))
+        self.assertIn("答案与选项对不上", _audit_question(
+            {"type": "single", "options": ["A. 甲", "B. 乙"], "answer": "E"}))
+        self.assertIn("判断题答案应为对或错", _audit_question(
+            {"type": "judge", "options": ["对", "错"], "answer": "C"}))
+        self.assertIn("解析缺失", _audit_question(
+            {"type": "single", "options": ["A. 甲", "B. 乙"], "answer": "A",
+             "analysis": "（原文未提供解析，待补充）"}))
+        self.assertIn("选项里混入了答案字样", _audit_question(
+            {"type": "single", "options": ["A. 甲（正确答案）", "B. 乙"],
+             "answer": "A", "analysis": "略"}))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

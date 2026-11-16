@@ -40,6 +40,19 @@ major(解答/证明/论述)。
    哪几题没吐回来并只补问那几题；题干里可以不重复题号。
 """
 
+REPAIR_USER = """科目：{subject}
+
+下面每道题都标出了复查发现的问题。逐题修复后只返回这些题：JSON 对象，
+questions 数组，每题仍是 no、type、question、options、answer、analysis 六个字段。
+要求：
+1. 只修标注了问题的部分；没有标问题的字段保持原样。
+2. answer 与 analysis 由你负责给出正确内容；题干与选项的原文不要改写，
+   只能剔除混进去的"答案/正确答案"等字样。
+3. 修复不了的项目原样返回，不要编造。
+
+{questions}
+"""
+
 PAGE_USER = """科目：{subject}
 
 这是试卷第 {page_no} 页（共 {page_total} 页）。识别本页出现的每一道题。

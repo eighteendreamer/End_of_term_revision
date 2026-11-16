@@ -16,7 +16,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from agents.base.prompts import IMPORT_SYSTEM, PAGE_USER, TEXT_USER
+from agents.base.prompts import (IMPORT_SYSTEM, PAGE_USER, REPAIR_USER,
+                                 TEXT_USER)
 from services.llm_client import LLMClient
 from services.question_chunker import (Batch, QuestionBlock, pack_batches,
                                        split_batch, split_blocks)
@@ -169,8 +170,91 @@ class QuestionImportAgent:
             outcome.truncated = outcome.truncated or meta.truncated
             _absorb(outcome, parsed)
 
+        self._repair_flagged(outcome)
         outcome.repairs = sorted(set(outcome.repairs))
         return outcome
+
+    def _repair_flagged(self, outcome: ImportOutcome) -> None:
+        """
+        返回前端前的拦截复查：代码查问题 → 只修有问题的题 → 代码再拦截。
+
+        第一层与第二层拦截都是纯代码；中间最多一轮模型修正，且只送有问题的题、
+        只改标了问题的字段。修不好的发现写进疑点随结果返回，由人工处理。
+        """
+        findings = _audit_outcome(outcome)
+        if not findings:
+            return
+        for index, items in findings.items():
+            issues = outcome.issues.setdefault(index, [])
+            issues.extend(item for item in items if item not in issues)
+
+        listing = "\n\n".join(
+            "题号 %s\n题干：%s\n选项：%s\n当前答案：%s\n当前解析：%s\n问题：%s" % (
+                question.get("number") or index + 1,
+                str(question.get("question") or "").strip(),
+                "；".join(question.get("options") or []) or "无",
+                str(question.get("answer") or "").strip() or "（空）",
+                str(question.get("analysis") or "").strip() or "（空）",
+                "、".join(items))
+            for index, question, items in
+            ((index, outcome.questions[index], items)
+             for index, items in findings.items()))
+        try:
+            result = self.client.complete_json(
+                IMPORT_SYSTEM,
+                REPAIR_USER.format(subject=outcome.subject, questions=listing),
+                self.client.output_budget(len(findings)))
+        except Exception as exc:
+            logger.warning("复查修正失败: %s", exc)
+            outcome.errors.append("复查修正失败: %s" % exc)
+            return
+
+        repaired = parse_questions(result.text)
+        by_number = {str(q.get("number")): q for q in repaired["questions"]
+                     if q.get("number")}
+        by_stem = {str(q.get("question") or "").strip(): q
+                   for q in repaired["questions"]}
+        fixed = 0
+        for index, question in enumerate(outcome.questions):
+            if index not in findings:
+                continue
+            key = str(question.get("number") or "")
+            hit = by_number.get(key) or by_stem.get(
+                str(question.get("question") or "").strip())
+            if not hit:
+                continue
+            answer = str(hit.get("answer") or "").strip()
+            analysis = str(hit.get("analysis") or "").strip()
+            stem = str(hit.get("question") or "").strip()
+            if answer and answer != str(question.get("answer") or "").strip():
+                question["answer"] = answer
+            if analysis and analysis != str(question.get("analysis") or "").strip():
+                question["analysis"] = analysis
+            if stem and "答案" not in stem and stem != str(
+                    question.get("question") or "").strip():
+                question["question"] = stem
+            fixed += 1
+
+        remaining = _audit_outcome(outcome)
+        for index, items in findings.items():
+            issues = outcome.issues.get(index)
+            if not issues:
+                continue
+            if index in remaining:
+                issues.extend(item for item in remaining[index] if item not in issues)
+            else:
+                cleaned = [item for item in issues if item not in items]
+                if cleaned:
+                    outcome.issues[index] = cleaned
+                else:
+                    outcome.issues.pop(index, None)
+        if fixed:
+            outcome.repairs.append("复查修正 %d 题" % fixed)
+        for index, items in remaining.items():
+            outcome.errors.append(
+                "第 %s 题复查后仍存在问题：%s" % (
+                    outcome.questions[index].get("number") or index + 1,
+                    "、".join(items)))
 
     def _execute(self, plan: BatchPlan, subject: str, prompt_for: PromptFor,
                  index: int, depth: int,
@@ -337,6 +421,56 @@ def _missing_blocks(plan: BatchPlan, parsed: Dict[str, Any]) -> List[QuestionBlo
         return []
     return [block for block in plan.blocks
             if _main_number(block.number) and _main_number(block.number) not in returned]
+
+
+_PLACEHOLDER_ANALYSIS = "（原文未提供解析，待补充）"
+
+
+def _audit_question(question: Dict[str, Any]) -> List[str]:
+    """
+    单题的代码级复查。只查得出结构问题：语义对错由模型复查轮处理。
+
+    每条发现都会展示在预览疑点里；有发现才触发修正轮。
+    """
+    findings: List[str] = []
+    qtype = question.get("type")
+    options = [str(option) for option in (question.get("options") or [])]
+    answer = str(question.get("answer") or "").strip()
+    analysis = str(question.get("analysis") or "").strip()
+    stem = str(question.get("question") or "").strip()
+
+    if not answer:
+        findings.append("答案缺失")
+    if not analysis or analysis == _PLACEHOLDER_ANALYSIS:
+        findings.append("解析缺失")
+
+    letters = []
+    for option in options:
+        match = re.match(r"^([A-Z])[.、．]", option.strip())
+        if match:
+            letters.append(match.group(1))
+    if qtype in ("single", "multiple") and options:
+        if answer:
+            picked = re.findall(r"[A-Z]", answer.upper())
+            if not picked or any(letter not in letters for letter in picked):
+                findings.append("答案与选项对不上")
+            elif qtype == "multiple" and picked != sorted(set(picked)):
+                findings.append("多选答案未去重排序")
+        if len(options) < 2:
+            findings.append("选项数量不足")
+    if qtype == "judge" and answer and answer not in ("对", "错"):
+        findings.append("判断题答案应为对或错")
+    if any("答案" in option or "正确答案" in option for option in options):
+        findings.append("选项里混入了答案字样")
+    if "答案：" in stem or "正确答案" in stem:
+        findings.append("题干里混入了答案字样")
+    return findings
+
+
+def _audit_outcome(outcome: ImportOutcome) -> Dict[int, List[str]]:
+    return {index: _audit_question(question)
+            for index, question in enumerate(outcome.questions)
+            if _audit_question(question)}
 
 
 def _better(candidate: Dict[str, Any], candidate_meta: BatchMeta,
