@@ -71,6 +71,15 @@
                 :placeholder="`选项 ${key + 1}`"
                 size="small"
               />
+              <n-button
+                v-if="(question.type === 'single' || question.type === 'multiple')
+                      && question.options.length < 6"
+                size="tiny"
+                quaternary
+                @click="addOption(question)"
+              >
+                + 添加选项
+              </n-button>
             </n-space>
           </n-form-item>
 
@@ -104,6 +113,7 @@
       <n-space justify="space-between">
         <n-text depth="3">共 {{ questions.length }} 道题目</n-text>
         <n-space>
+          <n-button @click="addManualQuestion">手动添加一题</n-button>
           <n-button @click="handleCancel">取消</n-button>
           <n-button
             type="primary"
@@ -185,6 +195,24 @@ const handleTypeChange = (index) => {
   if ((question.type === 'single' || question.type === 'multiple') && Object.keys(question.options || {}).length === 0) {
     question.options = { 'A': '', 'B': '', 'C': '', 'D': '' }
   }
+}
+
+// 手动补一题：AI 漏识别或纯手录时，在预览里直接追加空题编辑
+const addManualQuestion = () => {
+  questions.value.push({
+    type: 'single',
+    question: '',
+    options: ['A. ', 'B. ', 'C. ', 'D. '],
+    answer: '',
+    analysis: '',
+    number: String(questions.value.length + 1)
+  })
+}
+
+// 选择题选项不够时手动补，字母按已有数量顺延
+const addOption = (question) => {
+  const letter = String.fromCharCode(65 + question.options.length)
+  question.options.push(`${letter}. `)
 }
 
 // 删除题目

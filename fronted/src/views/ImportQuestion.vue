@@ -24,6 +24,11 @@
 
       <!-- 导入方式选择 -->
       <n-card title="2. 选择导入方式">
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
+          <n-button size="small" quaternary type="primary" @click="openManualEntry">
+            不用 AI？手动录入题目
+          </n-button>
+        </div>
         <n-tabs v-model:value="importType" type="segment" @update:value="handleTabChange">
           <n-tab-pane name="file" tab="文件导入">
             <n-space vertical style="margin-top: 16px;">
@@ -173,6 +178,20 @@ const loadingSubjects = ref(false)
 const subjects = ref([])
 const selectedSubject = ref(null)
 const importType = ref('file')
+
+// 不经过 AI 的手动录入：打开同一个预览弹窗，确认时走同一条入库链路
+const openManualEntry = () => {
+  parsedQuestions.value = [{
+    type: 'single',
+    question: '',
+    options: ['A. ', 'B. ', 'C. ', 'D. '],
+    answer: '',
+    analysis: '',
+    number: '1'
+  }]
+  importStats.value = null
+  showPreview.value = true
+}
 const textContent = ref('')
 const fileUploadRef = ref(null)
 const imageUploadRef = ref(null)
