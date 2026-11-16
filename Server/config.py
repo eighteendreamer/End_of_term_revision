@@ -22,7 +22,7 @@ class Config:
     # 数据库配置
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
-        "mysql+pymysql://root:root@localhost:3306/end_of_term_revision"
+        "mysql+pymysql://root:qwer4321@localhost:3306/end_of_term_revision"
     )
     
     # MinIO配置
@@ -41,7 +41,6 @@ class Config:
         # "10.0.0.1",
         # "192.168.1.1",
     ]
-
 
 
 # 全局配置实例

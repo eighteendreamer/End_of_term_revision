@@ -69,7 +69,7 @@ class School(Base):
     
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='学校ID')
     name = Column(String(255), nullable=False, unique=True, comment='学校名称')
-    # code = Column(String(50), nullable=True, comment='学校代码')  # 数据库中没有此字段
+    code = Column(String(50), nullable=True, comment='学校代码')
     province = Column(String(50), nullable=True, comment='省份')
     city = Column(String(50), nullable=True, comment='城市')
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp(), comment='创建时间')
@@ -83,7 +83,7 @@ class College(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='学院ID')
     school_id = Column(BigInteger, ForeignKey('schools.id', ondelete='CASCADE'), nullable=False, comment='所属学校ID')
     name = Column(String(255), nullable=False, comment='学院名称')
-    # code = Column(String(50), nullable=True, comment='学院代码')  # 数据库中没有此字段
+    code = Column(String(50), nullable=True, comment='学院代码')
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp(), comment='创建时间')
     updated_at = Column(TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp(), comment='更新时间')
 
@@ -96,7 +96,7 @@ class Major(Base):
     college_id = Column(BigInteger, ForeignKey('colleges.id', ondelete='CASCADE'), nullable=False, comment='所属学院ID')
     school_id = Column(BigInteger, ForeignKey('schools.id', ondelete='CASCADE'), nullable=False, comment='所属学校ID（冗余字段）')
     name = Column(String(255), nullable=False, comment='专业名称')
-    # code = Column(String(50), nullable=True, comment='专业代码')  # 数据库中没有此字段
+    code = Column(String(50), nullable=True, comment='专业代码')
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp(), comment='创建时间')
     updated_at = Column(TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp(), comment='更新时间')
 
